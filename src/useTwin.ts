@@ -12,7 +12,7 @@ import { Connection, type ConnectionStatus } from "./core/connection";
 
 const example = JSON.stringify(
   {
-    version: 1,
+    version: 2,
     type: "command",
     id: "hello-1",
     motors: {
@@ -102,7 +102,7 @@ export function useTwin() {
   }
   function command(partial: Pick<Command, "motors" | "eyes">) {
     submit({
-      version: 1,
+      version: 2,
       type: "command",
       id: `manual-${++counter.current}`,
       ...partial,
@@ -143,7 +143,7 @@ export function useTwin() {
       submit(JSON.parse(json));
     } catch (error) {
       const message = `Invalid JSON: ${error instanceof Error ? error.message : "parse failed"}`;
-      fail(message, { version: 1, type: "error", id: null, message });
+      fail(message, { version: 2, type: "error", id: null, message });
     }
   }
   return {

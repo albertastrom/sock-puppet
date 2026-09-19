@@ -1,3 +1,4 @@
+import { Creature } from "./creature";
 import { config, joints, sides, type Joint } from "./config";
 import {
   defaultEye,
@@ -38,6 +39,9 @@ function idleState(): State {
 }
 
 export class Simulator {
+  readonly creature = new Creature();
+  private accumulator = 0;
+  private seen = new Set<string>();
   private state: State = idleState();
   private velocities: Record<Joint, number> = {
     baseYaw: 0,
@@ -56,12 +60,29 @@ export class Simulator {
     this.listeners.forEach((listener) => listener());
   }
   private replace(motors: State["motors"], eyes: State["eyes"]) {
-    this.state = store(motors, eyes);
+    this.state = Object.freeze({...store(motors, eyes), creature: Object.freeze({...this.creature.status})});
     this.emit();
   }
   applyCommand = (raw: unknown): Result => {
     try {
       const command = parseCommand(raw);
+      if(command.creature) {
+        if(this.seen.has(command.id)) return {version:2,type:"ack",id:command.id};
+        this.creature.accept(command.creature,command.id,this.state);
+        this.seen.add(command.id); if(this.seen.size>256)this.seen.delete(this.seen.values().next().value!);
+        if(command.creature.kind==="stop") {
+          this.freeze();
+          if(command.creature.closeJaw) this.applyCommand({version:2,type:"command",id:command.id+"-jaw",motors:{jawOpen:{angleDeg:0}}});
+        }
+        this.replace(this.state.motors,this.state.eyes);
+        return {version:2,type:"ack",id:command.id};
+      }
+      this.creature.stop();
+      this.applyTargets(command);
+      return {version:2,type:"ack",id:command.id};
+    } catch (error) { return errorResult(raw,error); }
+  };
+  private applyTargets(command: Pick<import("./protocol").Command,"motors"|"eyes">) {
       let motors = this.state.motors;
       let eyes = this.state.eyes;
       if (command.motors) {
@@ -88,13 +109,11 @@ export class Simulator {
         eyes = Object.freeze(eyes);
       }
       this.replace(motors, eyes);
-      return { version: 1, type: "ack", id: command.id };
-    } catch (error) {
-      return errorResult(raw, error);
-    }
-  };
+  }
   step = (dt: number) => {
     if (!Number.isFinite(dt) || dt <= 0) return;
+    this.accumulator += Math.min(dt,0.1)*1000;
+    while(this.accumulator>=20) {const update=this.creature.tick(20);if(update)this.applyTargets(update);this.accumulator-=20;}
     let motors: State["motors"] | undefined;
     for (const joint of joints) {
       const current = (motors ?? this.state.motors)[joint];
@@ -142,6 +161,8 @@ export class Simulator {
     if (motors) this.replace(motors, this.state.eyes);
   };
   freeze = () => {
+    this.creature.stop();
+    this.accumulator=0;
     let motors: State["motors"] | undefined;
     for (const joint of joints) {
       this.velocities[joint] = 0;
@@ -154,6 +175,6 @@ export class Simulator {
         moving: false,
       };
     }
-    if (motors) this.replace(motors, this.state.eyes);
+    this.replace(motors ?? this.state.motors, this.state.eyes);
   };
 }

@@ -43,14 +43,14 @@ describe("WebSocket controller integration", () => {
       client.connect(`ws://127.0.0.1:${address.port}`);
       await until(() => received.some((m) => m.type === "capabilities"));
       expect(received[0]).toMatchObject({
-        version: 1,
+        version: 2,
         type: "capabilities",
-        display: { width: 128, height: 64 },
+        display: { width: 64, height: 128 },
         state: { motors: { baseYaw: { angleDeg: 0 } } },
       });
       peer!.send(
         JSON.stringify({
-          version: 1,
+          version: 2,
           type: "command",
           id: "move",
           motors: { baseYaw: { angleDeg: 60, speedDegPerSec: 10 } },
@@ -91,7 +91,7 @@ describe("WebSocket controller integration", () => {
       expect(s.getState().motors.baseYaw.angleDeg).toBe(expectedAngle);
       peer!.send(
         JSON.stringify({
-          version: 1,
+          version: 2,
           type: "command",
           id: "fresh",
           motors: { baseYaw: { angleDeg: -10 } },

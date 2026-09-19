@@ -42,7 +42,7 @@ input.on("line", (line) => {
   if (line === "hello" || line === "neutral") {
     const neutral = line === "neutral";
     command = {
-      version: 1,
+      version: 2,
       type: "command",
       id: `fixture-${++sequence}`,
       motors: {
@@ -53,15 +53,15 @@ input.on("line", (line) => {
     };
   } else if (line === "pixels") {
     const frame = Buffer.alloc(1024);
-    for (let y = 0; y < 64; y++)
-      for (let x = 0; x < 128; x++) {
+    for (let y = 0; y < 128; y++)
+      for (let x = 0; x < 64; x++) {
         if ((Math.floor(x / 8) + Math.floor(y / 8)) % 2 === 0) {
-          const i = y * 128 + x;
+          const i = y * 64 + x;
           frame[i >> 3] |= 1 << (7 - (i & 7));
         }
       }
     command = {
-      version: 1,
+      version: 2,
       type: "command",
       id: `pixels-${++sequence}`,
       eyes: {

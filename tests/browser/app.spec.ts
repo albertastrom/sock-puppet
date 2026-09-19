@@ -18,11 +18,11 @@ test("manual controls, independent eyes, console validation, and neutral reset",
   await expect(page.getByTestId("baseYaw-actual")).toHaveText("-25.0°");
   await page.getByLabel("Pupil X", { exact: true }).fill("20");
   await page.getByRole("button", { name: "right eye" }).click();
-  await expect(page.getByLabel("Pupil X", { exact: true })).toHaveValue("64");
+  await expect(page.getByLabel("Pupil X", { exact: true })).toHaveValue("32");
   await page.getByRole("tab", { name: "Command console" }).click();
   await page.getByLabel("JSON command").fill(
     JSON.stringify({
-      version: 1,
+      version: 2,
       type: "command",
       id: "browser",
       motors: { headPitch: { angleDeg: -30 }, jawOpen: { angleDeg: 45 } },
@@ -56,7 +56,7 @@ test("external commands lock manual controls and disconnection freezes", async (
       if (JSON.parse(data.toString()).type === "capabilities")
         socket.send(
           JSON.stringify({
-            version: 1,
+            version: 2,
             type: "command",
             id: "external",
             motors: { baseYaw: { angleDeg: 90, speedDegPerSec: 5 } },
@@ -117,7 +117,7 @@ test("renders the remaining joint extremes and monochrome frame orientation", as
     await page.getByRole("tab", { name: "Command console" }).click();
     await page.getByLabel("JSON command").fill(
       JSON.stringify({
-        version: 1,
+        version: 2,
         type: "command",
         id: `extreme-${yaw}`,
         motors: {
@@ -144,7 +144,7 @@ test("renders the remaining joint extremes and monochrome frame orientation", as
   await page.getByRole("tab", { name: "Command console" }).click();
   await page.getByLabel("JSON command").fill(
     JSON.stringify({
-      version: 1,
+      version: 2,
       type: "command",
       id: "frame",
       motors: {
@@ -171,7 +171,7 @@ test("renders the remaining joint extremes and monochrome frame orientation", as
       const ctx = (element as HTMLCanvasElement).getContext("2d")!;
       return [
         Array.from(ctx.getImageData(0, 0, 1, 1).data),
-        Array.from(ctx.getImageData(127, 63, 1, 1).data),
+        Array.from(ctx.getImageData(63, 127, 1, 1).data),
       ];
     });
   expect(samples).toEqual([
@@ -191,16 +191,16 @@ test("rejects unsafe speed, selects symbols independently, and stops motion", as
   await expect(page.getByLabel("Eye display")).toHaveValue("parameters");
   await expect(page.locator(".eye-preview").first()).toHaveAttribute(
     "width",
-    "128",
+    "64",
   );
   await expect(page.locator(".eye-preview").first()).toHaveAttribute(
     "height",
-    "64",
+    "128",
   );
   await page.getByRole("tab", { name: "Command console" }).click();
   await page.getByLabel("JSON command").fill(
     JSON.stringify({
-      version: 1,
+      version: 2,
       type: "command",
       id: "unsafe",
       motors: { headPitch: { angleDeg: 10, speedDegPerSec: 61 } },

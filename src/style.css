@@ -403,3 +403,7 @@ summary {
     animation: none !important;
   }
 }
+
+.playground { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+.playground label { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; gap: 8px; }
+.playground button { margin: 3px; }

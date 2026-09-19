@@ -1,3 +1,4 @@
+import { Playground } from "./components/Playground";
 import { NumberInput } from "./components/NumberInput";
 import { Component, useState, type ReactNode } from "react";
 import { Scene } from "./components/Scene";
@@ -148,6 +149,8 @@ export default function App() {
             </button>
           </div>
           <div className="panel-content">
+            <Playground disabled={!local} send={c=>{simulator.applyCommand(c);}} />
+            {state.creature && <p>{state.creature.behavior} · {state.creature.gesture} · {state.creature.expression} · {state.creature.actionStatus}</p>}
             {tab === "controls" ? (
               <>
                 <section className="motor-section">
