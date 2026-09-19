@@ -1,56 +1,46 @@
-# OpenAI voice migration and Realtime decision
-
-Decision: migrate the existing chained voice pipeline to OpenAI, separate voice I/O from performance planning, and retain the deterministic motion scheduler. GPT Realtime is a good candidate for the conversational voice role, but adopting it as the default needs a different turn coordinator. The current migration does not implement a speech-to-speech mode.
-
-## Implemented pipeline
+# GPT Live architecture
 
 ```text
-Microphone (24 kHz PCM)
-  → OpenAI Realtime transcription / gpt-4o-mini-transcribe
-  → Session: ordered completed user turns + bounded heard history
-  → OpenAIPlanner / gpt-4.1-mini → validated performance
-  → OpenAIVoice / gpt-4o-mini-tts → streamed PCM → browser playback
-  → playback progress + RMS → Scheduler → robot transport
+Computer microphone → paced 24 kHz PCM → Node Live provider → GPT Live 1
+Computer speakers ← AudioWorklet ← continuous output PCM ← GPT Live 1
+                          │                              │
+                  played RMS envelope          Responses delegation (Luna)
+                          │                              │ puppet_act
+                          └──────── host coordinator ────┘
+                                         │ protocol v2
+                                  WebSocket / serial
+                                         │
+                         local creature runtime → three servos + portrait eyes
 ```
 
-`Providers` now contains separately injectable `voice: VoiceProvider` and `planner: PerformancePlanner`. The voice service owns transcription and synthesis, while the planner owns the structured response and gesture cues. They have separate model settings and implementations. This is a service boundary, not two independent reasoning agents: one planner still chooses speech text and movement together.
+`OpenAILive` owns session startup/close, audio, transcripts, usage, and connection errors. `LiveDelegation` owns nested Responses lifecycle events, call IDs, stale-work rejection, result submission, and backend continuation. `Session` owns application lifetime, playback generations, explicit interruption recovery, and operator events. `Scheduler` submits semantic intent and envelopes; it does not generate servo frames. `@sock-puppet/robot` owns all local animation, rendering, validation, and simulation.
 
-The migration keeps the existing choreography contract: validate the entire performance before execution, repair once on validation failure, and time cues against consumed audio. Stop, stale-generation rejection, actuator limits, jaw arbitration, and serial transport behavior remain in the host. No model drives the servo loop.
+## Live-specific behavior
 
-The selected planner supports structured outputs; it is a small, non-reasoning baseline for this bounded JSON task, not a claim that it is the latest or best tutoring model. All three model settings can be changed independently, provided their API contracts match. In particular, `OPENAI_PLAN_MODEL=gpt-realtime` is not a supported way to activate speech-to-speech. [GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini)
+Use `wss://api.openai.com/v1/live/sessions`, `session.start`, then wait for `session.started`. Configure `gpt-live-1`, PCM16LE/24kHz, Marin, and Responses delegation with `gpt-5.6-luna`. Audio uses `session.input_audio.append` and `session.output_audio.delta`; transcripts use input/output transcript delta events. Primary WebSocket output has neither timestamps nor audio-done events. [Live WebSockets](https://developers.openai.com/api/docs/guides/voice-websockets?api=live)
 
-OpenAI transcription uses the GA `session.update` configuration with 24 kHz audio, language hints, and server VAD. The adapter orders final transcripts by committed audio items, bounds pending work, and handles a push-to-talk commit racing automatic VAD. [Realtime client events](https://developers.openai.com/api/reference/resources/realtime/client-events)
+Tool definitions belong under `delegation.responses.tools`. Read completed function items from nested `response.output_item.done`, preserving delegation/response/call IDs. Return `response.item.create` function output and continue with `response.create` only after required results and backend completion. Never treat backend completion as audio completion. The host validates every action and deduplicates tool calls. A new delegation supersedes unfinished expressive work. [Delegation](https://developers.openai.com/api/docs/guides/live-delegation)
 
-Speech uses raw 24 kHz PCM from the Speech API, with `gpt-4o-mini-tts` and `marin`. HTTP chunk boundaries do not necessarily align with samples. The adapter retains incomplete samples, aborts pending reads, and caps output duration. No word alignment is available in this raw stream, so interrupted history records elapsed playback rather than estimating heard words. [Text to speech](https://developers.openai.com/api/docs/guides/text-to-speech)
+The voice prompt controls tutoring style and when to delegate; the backend prompt describes gesture semantics. Local idle animation does not call a model. Tool requests older than ten seconds are rejected, and transport queue residence reduces the action lifetime. Action execution uses current calibrated limits.
 
-## Is GPT Realtime a good fit?
+## Playback and interruption
 
-Yes for natural turn-taking, expressive conversation, and an eventual voice-first puppet. Its direct audio input/output and function calling fit the interaction. However, it does not support the strict structured-output contract currently used for complete performances. Function arguments would still need local parsing and robot validation. [GPT Realtime](https://developers.openai.com/api/docs/models/gpt-realtime)
+The continuous worklet maintains a local consumed-sample clock, resampling phase, bounded two-second playback queue, and full 20 ms RMS windows. It does not hard-interrupt on microphone amplitude. Mute and push-to-talk gate capture while preserving its cadence.
 
-| Approach | Benefit for the puppet | Main tradeoff |
-| --- | --- | --- |
-| Chained transcription → performance → TTS (implemented) | Inspectable response text and complete gesture validation before playback | Transcription, planning, and speech startup add sequential latency; some vocal nuance is lost |
-| Realtime voice + a small gesture tool | Natural audio interaction; fewer sequential model stages | Tool completion is not an audio timestamp; exact choreography requires host coordination |
-| Realtime voice + independent movement planner | Speech can continue while a separate model reasons about motion | More cost, stale plans, conflicting interpretations, and synchronization work |
+Explicit interruption clears local playback, invalidates delegated work, stops active creature motion, and sends a Live instruction to stop speaking. Output is dropped until 300 ms of low-energy audio (RMS below 0.012), or a 300 ms gap without audio, then playback resumes with a fresh generation. A model instruction acknowledgment is not used as proof that audio stopped. No discarded audio is replayed.
 
-These are architectural expectations, not measured latency or quality results. Native audio is worth benchmarking against the chained implementation before choosing the default. OpenAI describes speech-to-speech and chained architectures as different tradeoffs for voice applications. [Voice agents](https://developers.openai.com/api/docs/guides/voice-agents)
+Live does not expose the Realtime truncation workflow here: withheld speech may remain in its context. The interruption instruction tells Live that some generated audio was not heard. Instructions do not cancel already-running hosted backend work; the host blocks its tools and continuation. [Server controls](https://developers.openai.com/api/docs/guides/voice-server-controls?api=live)
 
-## Separate movement and voice thinking
+Normal speech overlap is handled by Live. This version cannot infer exact word-aligned gesture placement from tools; cues execute promptly while speech continues. PCM drives the jaw from what the user actually hears, never transcript timing or generated duration.
 
-Recommended next architecture if conversation latency is the priority:
+## Lifecycle and failures
 
-1. Realtime owns the persona, conversational state, and audio response. Keep the robot capability schema out of the ordinary conversation prompt.
-2. A narrow movement tool accepts intentional gestures. Start with a bounded gesture vocabulary; add a separate structured motion planner only for commands that require more reasoning. Idle, listening, blinking, and jaw motion remain deterministic.
-3. Share a turn/generation ID, current robot state, and the latest completed user turn. Optional expressive gestures must not block speech. Discard a late plan when its turn ends or is interrupted; do not replay stale cues to catch up.
-4. Movement results report accepted, rejected, or completed using transport telemetry. Voice must not claim a requested movement happened before the result is known. Commands that need verbal confirmation may intentionally wait for that result.
-5. Cancel voice and pending motion together on interruption. For WebSocket Realtime, stop browser playback and truncate the server conversation at the actually consumed audio time. Audio generation completion is not playback completion. [Realtime interruptions](https://developers.openai.com/api/docs/guides/realtime-conversations)
+Stop releases microphone resources, clears playback and unsent robot commands, and sends `session.close`. Receive `session.closed` before cleanup, with a 15-second bounded wait; report incomplete finalization on timeout or transport failure. A new voice session waits for closure of the previous one. Usage events are snapshots, not quantities to sum blindly. [Session lifecycle](https://developers.openai.com/api/docs/guides/live-conversations)
 
-This warrants a focused coordinator restructure, not a replacement of the harness. A future `RealtimeSession` should consume streamed audio and tool events and reuse the validator, scheduler, playback telemetry, and robot adapters. It should not pretend native audio is `plan()` followed by `speak()`. The current interface split is useful immediately, but is not itself a full Realtime adapter.
+Robot/voice errors stop the session. Serial disconnect requires a fresh handshake; no stale voice or motion resumes. Firmware remains responsible for physical calibration and watchdog stop behavior. The computer cannot stop a physically disconnected board.
 
-The existing scheduler starts with a complete segment. Supporting gestures that arrive after speech starts will also require bounded cue insertion, explicit deadlines, and a documented policy for late cues. Do not allow competing model loops to write directly to the robot. Use one actuator arbiter with the existing stop > explicit gesture > audio jaw > idle priority.
+## Acceptance
 
-## Acceptance before switching to native Realtime
+Automated tests cover nested events, duplicate/late/malformed tools, interruption recovery, canceled startup, audio RMS windows, stale playback generations, native serial transport, and browser playback. The twin separately compares every portrait eye panel with independent HTML-reference hashes.
 
-Compare both architectures on the same questions and microphone/speaker setup: explanations, hesitations, deliberate pauses, interruptions, repeated short utterances, “look left,” silent movement, and a request combining speech and gesture. Record end-of-user-speech to first audible output (median and p95), unintended interruptions, successful movements, invalid/late cues, audio underruns, and actual API usage/cost. The console currently measures completed-transcript to playback, which excludes transcription latency and is not a fair end-to-end comparison by itself.
-
-A live run needs an OpenAI key with access to the selected models. Automated provider tests mock the protocol; they do not establish account access, real-room recognition, voice quality, or live latency. No API calls or microphone recordings are needed for the automated suites. Existing `.env` credentials are not copied or repurposed; set `OPENAI_API_KEY` using `.env.example` as the reference.
+A live key verifies API availability but cannot establish real-room echo robustness. Record latency, action timing, false interruptions, and jaw alignment using the eventual microphone, speakers, servos, and firmware before physical deployment. No recording or persisted transcript is enabled by default.
