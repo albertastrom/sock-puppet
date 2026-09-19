@@ -94,14 +94,35 @@ function Screen({ side, simulator }: { side: Side; simulator: Simulator }) {
 }
 
 function SockMaterial({ fabric }: { fabric: THREE.Texture }) {
-  return <meshStandardMaterial color="white" roughness={0.96} map={fabric} bumpMap={fabric} bumpScale={0.001}
-    onBeforeCompile={(shader) => {
-      shader.vertexShader = "varying vec2 sockUv;\n" + shader.vertexShader;
-      shader.vertexShader = shader.vertexShader.replace("#include <uv_vertex>", "#include <uv_vertex>\nsockUv = uv;");
-      shader.fragmentShader = "varying vec2 sockUv;\n" + shader.fragmentShader;
-      shader.fragmentShader = shader.fragmentShader.replace("#include <color_fragment>",
-        "#include <color_fragment>\nfloat band = step(0.5, fract(sockUv.y * 6.0));\ndiffuseColor.rgb *= mix(vec3(0.6867,0.7011,0.7231), vec3(0.8070,0.3813,0.4793), band);");
-    }} />;
+  return (
+    <meshStandardMaterial
+      color="white"
+      roughness={0.96}
+      map={fabric}
+      bumpMap={fabric}
+      bumpScale={0.001}
+      onBeforeCompile={(shader) => {
+        shader.uniforms.sockGray = {
+          value: new THREE.Color(config.colors.fabric),
+        };
+        shader.uniforms.sockPink = {
+          value: new THREE.Color(config.colors.cuff),
+        };
+        shader.vertexShader = "varying vec2 sockUv;\n" + shader.vertexShader;
+        shader.vertexShader = shader.vertexShader.replace(
+          "#include <uv_vertex>",
+          "#include <uv_vertex>\nsockUv = uv;",
+        );
+        shader.fragmentShader =
+          "uniform vec3 sockGray; uniform vec3 sockPink; varying vec2 sockUv;\n" +
+          shader.fragmentShader;
+        shader.fragmentShader = shader.fragmentShader.replace(
+          "#include <color_fragment>",
+          "#include <color_fragment>\nfloat band = step(0.5, fract(sockUv.y * 6.0));\ndiffuseColor.rgb *= mix(sockGray, sockPink, band);",
+        );
+      }}
+    />
+  );
 }
 
 function Puppet({ simulator, axes }: { simulator: Simulator; axes: boolean }) {

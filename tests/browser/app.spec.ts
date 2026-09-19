@@ -218,3 +218,36 @@ test("rejects unsafe speed, selects symbols independently, and stops motion", as
   await page.waitForTimeout(300);
   await expect(page.getByTestId("baseYaw-actual")).toHaveText(held!);
 });
+
+test("previews portrait expressions and autonomous gestures offline", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start idle", exact: true }).click();
+  await expect(page.locator(".panel-content")).toContainText("idle/listening");
+  await page.getByLabel("Expression", { exact: true }).selectOption("wink");
+  await expect(page.locator(".panel-content")).toContainText("wink");
+  await page.screenshot({ path: "test-results/portrait-wink.png" });
+  await page.getByRole("button", { name: "nod", exact: true }).click();
+  await expect(page.locator(".panel-content")).toContainText("nod");
+  await page
+    .getByRole("button", { name: "Pause creature", exact: true })
+    .click();
+  await expect(page.locator(".panel-content")).toContainText("stopped");
+  await page.getByLabel("Eye sequence", { exact: true }).selectOption("boot");
+  await page.waitForTimeout(350);
+  await page.screenshot({ path: "test-results/portrait-boot.png" });
+  const canvas = page.locator("canvas").first();
+  const box = await canvas.boundingBox();
+  if (box) {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      box.x + box.width / 2 + box.width * 0.35,
+      box.y + box.height / 2,
+      { steps: 20 },
+    );
+    await page.mouse.up();
+  }
+  await page.screenshot({ path: "test-results/striped-rear.png" });
+});

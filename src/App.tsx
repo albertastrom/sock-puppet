@@ -149,8 +149,18 @@ export default function App() {
             </button>
           </div>
           <div className="panel-content">
-            <Playground disabled={!local} send={c=>{simulator.applyCommand(c);}} />
-            {state.creature && <p>{state.creature.behavior} · {state.creature.gesture} · {state.creature.expression} · {state.creature.actionStatus}</p>}
+            <Playground
+              disabled={!local}
+              send={(c) => {
+                simulator.applyCommand(c);
+              }}
+            />
+            {state.creature && (
+              <p>
+                {state.creature.behavior} · {state.creature.gesture} ·{" "}
+                {state.creature.expression} · {state.creature.actionStatus}
+              </p>
+            )}
             {tab === "controls" ? (
               <>
                 <section className="motor-section">
@@ -261,6 +271,11 @@ export default function App() {
                             {name[0].toUpperCase() + name.slice(1)}
                           </option>
                         ))}
+                        {selectedEye.mode === "expression" && (
+                          <option value="expression" disabled>
+                            {selectedEye.name}
+                          </option>
+                        )}
                         {selectedEye.mode === "pixels" && (
                           <option value="pixels" disabled>
                             Framebuffer
