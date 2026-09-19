@@ -128,7 +128,12 @@ describe("command validation and state", () => {
   it("omits unchanged eyes from telemetry snapshots", () => {
     const s = new Simulator();
     const capabilities = capabilitiesMessage(s.getState());
-    expect(capabilities.eyeModes).toEqual(["parameters", "symbol", "pixels", "expression"]);
+    expect(capabilities.eyeModes).toEqual([
+      "parameters",
+      "symbol",
+      "pixels",
+      "expression",
+    ]);
     expect(capabilities.state.eyes.left.mode).toBe("parameters");
     const first = stateMessage(s.getState());
     expect(first.eyes).toBeDefined();

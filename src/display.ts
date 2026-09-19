@@ -49,20 +49,46 @@ export function renderFrame(eye: Eye): Uint8Array {
   if (eye.brightness === 0) return new Uint8Array(frameBytes);
   if (eye.mode === "pixels") return frame;
   if (eye.mode === "expression" || eye.mode === "parameters") {
-    const spec = eye.mode === "expression" ? expressionSpec(eye.name, eye.side) : expressionSpec("neutral", "left");
-    const pixels = rasterEye(spec, eye.mode === "expression" && eye.side === "right" ? 1 : -1,
-      eye.mode === "expression" ? {x:eye.x,y:eye.y,size:eye.size,conv:eye.convergence} : {x:eye.x / (width-1)*2-1,y:eye.y / (height-1)*2-1,size:1,conv:0});
-    for (let i=0; i<pixels.length; i++) {
-      const y = Math.floor(i/width);
-      if (pixels[i] && Math.abs(y-(height-1)/2) < height/2*eye.openness) frame[i>>3] |= 1 << (7-(i&7));
+    const spec =
+      eye.mode === "expression"
+        ? expressionSpec(eye.name, eye.side)
+        : expressionSpec("neutral", "left");
+    const pixels = rasterEye(
+      spec,
+      eye.mode === "expression" && eye.side === "right" ? 1 : -1,
+      eye.mode === "expression"
+        ? { x: eye.x, y: eye.y, size: eye.size, conv: eye.convergence }
+        : {
+            x: (eye.x / (width - 1)) * 2 - 1,
+            y: (eye.y / (height - 1)) * 2 - 1,
+            size: 1,
+            conv: 0,
+          },
+    );
+    for (let i = 0; i < pixels.length; i++) {
+      const y = Math.floor(i / width);
+      if (
+        pixels[i] &&
+        Math.abs(y - (height - 1) / 2) < (height / 2) * eye.openness
+      )
+        frame[i >> 3] |= 1 << (7 - (i & 7));
     }
   } else {
-    for (let y=0;y<height;y++) for(let x=0;x<width;x++) {
-      const gx=Math.floor((x-4)/8), gy=Math.floor((y-36)/8);
-      if(gx>=0&&gx<7&&gy>=0&&gy<7&&glyphs[eye.name][gy][gx]==="1") {
-        const i=y*width+x; frame[i>>3] |= 1 << (7-(i&7));
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const gx = Math.floor((x - 4) / 8),
+          gy = Math.floor((y - 36) / 8);
+        if (
+          gx >= 0 &&
+          gx < 7 &&
+          gy >= 0 &&
+          gy < 7 &&
+          glyphs[eye.name][gy][gx] === "1"
+        ) {
+          const i = y * width + x;
+          frame[i >> 3] |= 1 << (7 - (i & 7));
+        }
       }
-    }
   }
   return frame;
 }
