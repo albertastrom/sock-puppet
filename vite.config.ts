@@ -3,6 +3,6 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   test: {
-    include: ["tests/**/*.test.ts", "robot/tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts"],
   },
 });
