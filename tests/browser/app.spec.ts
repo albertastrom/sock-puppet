@@ -1,0 +1,182 @@
+import { test, expect } from "@playwright/test";
+import { WebSocketServer } from "ws";
+test("manual controls, independent eyes, console validation, and neutral reset", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Meet Purl." })).toBeVisible();
+  await page.getByRole("button", { name: "Hello ♡" }).click();
+  await expect(page.getByTestId("jawOpen-actual")).toHaveText("30.0°");
+  const target = page.getByLabel("Base rotation target");
+  await target.fill("");
+  await target.pressSequentially("-25");
+  await target.press("Enter");
+  await expect(page.getByTestId("baseYaw-actual")).toHaveText("-25.0°");
+  await page.getByLabel("Pupil X", { exact: true }).fill("20");
+  await page.getByRole("button", { name: "right eye" }).click();
+  await expect(page.getByLabel("Pupil X", { exact: true })).toHaveValue("40");
+  await page.getByRole("tab", { name: "Command console" }).click();
+  await page.getByLabel("JSON command").fill(
+    JSON.stringify({
+      version: 1,
+      type: "command",
+      id: "browser",
+      motors: { headPitch: { angleDeg: -30 }, jawOpen: { angleDeg: 45 } },
+    }),
+  );
+  await page.getByRole("button", { name: "Send command" }).click();
+  await expect(page.locator("output")).toHaveText("Accepted browser");
+  await page.getByLabel("JSON command").fill("{invalid");
+  await page.getByRole("button", { name: "Send command" }).click();
+  await expect(page.locator("output")).toContainText("Invalid JSON");
+  await page.getByRole("tab", { name: "Manual controls" }).click();
+  await expect(page.getByTestId("headPitch-actual")).toHaveText("-30.0°");
+  await page.screenshot({
+    path: "test-results/joint-extremes.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Neutral" }).click();
+  await expect(page.getByTestId("jawOpen-actual")).toHaveText("0.0°");
+  await page.screenshot({ path: "test-results/neutral.png", fullPage: true });
+  expect(errors).toEqual([]);
+});
+test("external commands lock manual controls and disconnection freezes", async ({
+  page,
+}) => {
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await new Promise<void>((resolve) => server.on("listening", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing port");
+  server.on("connection", (socket) => {
+    socket.on("message", (data) => {
+      if (JSON.parse(data.toString()).type === "capabilities")
+        socket.send(
+          JSON.stringify({
+            version: 1,
+            type: "command",
+            id: "external",
+            motors: { baseYaw: { angleDeg: 90, speedDegPerSec: 5 } },
+          }),
+        );
+    });
+  });
+  try {
+    await page.goto("/");
+    await page
+      .getByLabel("WebSocket URL")
+      .fill(`ws://127.0.0.1:${address.port}`);
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Hello ♡" })).toBeDisabled();
+    await expect(page.getByLabel("Event log")).toContainText(
+      "Accepted external",
+    );
+    await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Hello ♡" })).toBeEnabled();
+    const target = Number(
+      await page.getByLabel("Base rotation target").inputValue(),
+    );
+    expect(target).toBeLessThan(90);
+    await page.waitForTimeout(250);
+    expect(
+      Number(
+        await page
+          .getByTestId("baseYaw-actual")
+          .innerText()
+          .then((t) => t.replace("°", "")),
+      ),
+    ).toBeCloseTo(target, 0);
+  } finally {
+    for (const socket of server.clients) socket.terminate();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+test("mobile viewport remains usable", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Meet Purl." })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    390,
+  );
+  await page.screenshot({ path: "test-results/mobile.png", fullPage: true });
+});
+
+test("renders the remaining joint extremes and RGB frame orientation", async ({
+  page,
+}) => {
+  await page.goto("/");
+  for (const [yaw, pitch] of [
+    [90, 30],
+    [-90, -30],
+  ]) {
+    await page.getByRole("tab", { name: "Command console" }).click();
+    await page.getByLabel("JSON command").fill(
+      JSON.stringify({
+        version: 1,
+        type: "command",
+        id: `extreme-${yaw}`,
+        motors: {
+          baseYaw: { angleDeg: yaw },
+          headPitch: { angleDeg: pitch },
+          jawOpen: { angleDeg: 45 },
+        },
+      }),
+    );
+    await page.getByRole("button", { name: "Send command" }).click();
+    await page.getByRole("tab", { name: "Manual controls" }).click();
+    await expect(page.getByTestId("baseYaw-actual")).toHaveText(
+      `${yaw.toFixed(1)}°`,
+    );
+    await expect(page.getByTestId("headPitch-actual")).toHaveText(
+      `${pitch.toFixed(1)}°`,
+    );
+    await page.screenshot({ path: `test-results/extreme-${yaw}.png` });
+  }
+  const frame = Buffer.alloc(19200);
+  for (let y = 0; y < 80; y++)
+    for (let x = 0; x < 80; x++) {
+      const i = (y * 80 + x) * 3;
+      frame[i] = Math.round((x / 79) * 255);
+      frame[i + 1] = Math.round((y / 79) * 255);
+      frame[i + 2] = 80;
+    }
+  await page.getByRole("tab", { name: "Command console" }).click();
+  await page.getByLabel("JSON command").fill(
+    JSON.stringify({
+      version: 1,
+      type: "command",
+      id: "frame",
+      motors: {
+        baseYaw: { angleDeg: 0 },
+        headPitch: { angleDeg: 0 },
+        jawOpen: { angleDeg: 0 },
+      },
+      eyes: {
+        left: {
+          mode: "pixels",
+          data: frame.toString("base64"),
+          brightness: 1,
+        },
+      },
+    }),
+  );
+  await page.getByRole("button", { name: "Send command" }).click();
+  await page.getByRole("tab", { name: "Manual controls" }).click();
+  await expect(page.getByTestId("baseYaw-actual")).toHaveText("0.0°");
+  const samples = await page
+    .locator(".eye-preview")
+    .first()
+    .evaluate((element) => {
+      const ctx = (element as HTMLCanvasElement).getContext("2d")!;
+      return [
+        Array.from(ctx.getImageData(0, 0, 1, 1).data),
+        Array.from(ctx.getImageData(79, 79, 1, 1).data),
+      ];
+    });
+  expect(samples).toEqual([
+    [0, 0, 80, 255],
+    [255, 255, 80, 255],
+  ]);
+  await page.screenshot({ path: "test-results/pixel-frame.png" });
+});

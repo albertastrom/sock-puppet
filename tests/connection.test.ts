@@ -1,0 +1,127 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { WebSocket, WebSocketServer } from "ws";
+import { Connection } from "../src/core/connection";
+import { Simulator } from "../src/core/simulator";
+const until = async (predicate: () => boolean, timeout = 4000) => {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeout) throw new Error("Timed out");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+};
+describe("WebSocket controller integration", () => {
+  it("exchanges capabilities, atomic commands, telemetry, and reconnects without resuming motion", async () => {
+    const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+    await new Promise<void>((resolve) => server.on("listening", resolve));
+    const address = server.address();
+    if (typeof address === "string" || !address)
+      throw new Error("No server port");
+    let peer: WebSocket | undefined;
+    const received: any[] = [];
+    let count = 0;
+    server.on("connection", (socket) => {
+      peer = socket;
+      count++;
+      socket.on("message", (data) =>
+        received.push(JSON.parse(data.toString())),
+      );
+    });
+    const s = new Simulator(),
+      statuses: string[] = [];
+    const client = new Connection(
+      s,
+      (status) => statuses.push(status),
+      () => {},
+      (url) => new WebSocket(url) as unknown as globalThis.WebSocket,
+    );
+    try {
+      client.connect(`ws://127.0.0.1:${address.port}`);
+      await until(() => received.some((m) => m.type === "capabilities"));
+      expect(received[0]).toMatchObject({
+        version: 1,
+        type: "capabilities",
+        display: { width: 80, height: 80 },
+        state: { motors: { baseYaw: { angleDeg: 0 } } },
+      });
+      peer!.send(
+        JSON.stringify({
+          version: 1,
+          type: "command",
+          id: "move",
+          motors: { baseYaw: { angleDeg: 60, speedDegPerSec: 10 } },
+        }),
+      );
+      await until(() =>
+        received.some((m) => m.type === "ack" && m.id === "move"),
+      );
+      s.step(1);
+      await until(() =>
+        received.some(
+          (m) => m.type === "state" && m.motors.baseYaw.angleDeg === 10,
+        ),
+      );
+      expect(
+        received.find(
+          (m) => m.type === "state" && m.motors.baseYaw.angleDeg === 10,
+        ).motors.baseYaw.moving,
+      ).toBe(true);
+      peer!.send("{broken");
+      await until(() => received.some((m) => m.type === "error"));
+      expect(received.find((m) => m.type === "error").id).toBeNull();
+      peer!.close();
+      await until(() => statuses.includes("reconnecting"));
+      expect(s.getState().motors.baseYaw).toMatchObject({
+        targetDeg: 10,
+        moving: false,
+      });
+      await until(
+        () =>
+          count === 2 &&
+          received.filter((m) => m.type === "capabilities").length === 2,
+      );
+      s.step(10);
+      expect(s.getState().motors.baseYaw.angleDeg).toBe(10);
+      peer!.send(
+        JSON.stringify({
+          version: 1,
+          type: "command",
+          id: "fresh",
+          motors: { baseYaw: { angleDeg: -10 } },
+        }),
+      );
+      await until(() => received.some((m) => m.id === "fresh"));
+      s.step(1);
+      expect(s.getState().motors.baseYaw.angleDeg).toBe(-10);
+      client.disconnect();
+      expect(statuses.at(-1)).toBe("disconnected");
+    } finally {
+      client.disconnect();
+      for (const socket of server.clients) socket.terminate();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+afterEach(() => vi.useRealTimers());
+it("backs off up to ten seconds and cancels retry when explicitly disconnected", () => {
+  vi.useFakeTimers();
+  const attempts: number[] = [],
+    s = new Simulator();
+  const client = new Connection(
+    s,
+    () => {},
+    () => {},
+    () => {
+      attempts.push(Date.now());
+      throw new Error("offline");
+    },
+  );
+  client.connect("ws://localhost:8787");
+  for (const delay of [1000, 2000, 4000, 8000, 10000, 10000])
+    vi.advanceTimersByTime(delay);
+  expect(attempts.slice(1).map((time, i) => time - attempts[i])).toEqual([
+    1000, 2000, 4000, 8000, 10000, 10000,
+  ]);
+  client.disconnect();
+  vi.advanceTimersByTime(20000);
+  expect(attempts).toHaveLength(7);
+});
