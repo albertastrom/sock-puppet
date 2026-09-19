@@ -1,0 +1,21 @@
+{
+  "name": "sock-puppet",
+  "private": true,
+  "workspaces": [
+    "src/robot",
+    "src/digital-twin",
+    "src/puppeteer"
+  ],
+  "scripts": {
+    "test": "npm test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "dev:twin": "npm run dev -w sock-puppet-digital-twin",
+    "start": "npm start -w sock-puppet-puppeteer",
+    "fixture": "npm run fixture -w sock-puppet-digital-twin",
+    "test:browser": "npm run test:browser --workspaces --if-present",
+    "test:pty": "npm run test:pty -w sock-puppet-puppeteer"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}
