@@ -58,6 +58,7 @@ export function Playground({
       <label>
         Expression{" "}
         <select
+          aria-label="Expression"
           value={expression}
           onChange={(e) => {
             const name = e.target.value as Expression;
@@ -79,6 +80,7 @@ export function Playground({
       <label>
         Eye sequence{" "}
         <select
+          aria-label="Eye sequence"
           defaultValue=""
           onChange={(e) =>
             command({
