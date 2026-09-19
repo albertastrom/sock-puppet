@@ -8,7 +8,7 @@ Verified on 2026-09-19. Compatible implementation milestones:
 | digital-twin | `8a37600` | Portrait appearance, playground, and twin UI (robot package later extracted to its own repo)    |
 | puppeteer    | `3f779b3` | GPT Live provider, managed delegation, continuous PCM, semantic transport and integration tests |
 
-The subsequent documentation and repository-split commits do not change the wire contract. Keep the three sibling repositories on compatible commits; version-1 devices are incompatible.
+The subsequent documentation, repository-split, and monorepo commits do not change the wire contract. The three packages now live under `src/` in this repository; version-1 devices are incompatible.
 
 ## Automated results
 

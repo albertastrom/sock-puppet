@@ -2,22 +2,12 @@
 
 Shared version-2 creature protocol, portrait-eye rendering, validation, configuration, and acceleration-limited simulation. The digital twin and puppeteer consume this package as `@sock-puppet/robot`. Physical firmware is not included.
 
-Clone this repository as a sibling named `robot` next to `digital-twin` and `puppeteer`:
-
-```sh
-git clone https://github.com/albertastrom/sock-puppet-robot.git robot
-git clone https://github.com/albertastrom/sock-puppet-digital-twin.git digital-twin
-git clone https://github.com/albertastrom/sock-puppet-puppeteer.git puppeteer
-```
-
-Requires Node.js 22.12+ and npm.
+This package lives at `src/robot` in the sock-puppet monorepo. Install from the repository root:
 
 ```sh
 npm install
-npm test
+npm test -w @sock-puppet/robot
 ```
-
-Reinstall the local `file:../robot` dependency in each app after updating this package.
 
 | Joint       | Range   | Default speed | Maximum speed | Acceleration |
 | ----------- | ------- | ------------- | ------------- | ------------ |
