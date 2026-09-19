@@ -11,6 +11,16 @@ import time
 import tty
 
 root = Path(__file__).resolve().parent.parent
+
+
+def find_bin(name: str, start: Path) -> str:
+    for directory in [start, *start.parents]:
+        candidate = directory / "node_modules" / ".bin" / name
+        if candidate.exists():
+            return str(candidate)
+    raise RuntimeError(f"{name} not found in node_modules/.bin")
+
+
 masters, slaves, children = [], [], []
 try:
     for _ in range(2):
@@ -20,7 +30,7 @@ try:
         masters.append(master)
         slaves.append(slave)
     paths = [os.ttyname(slave) for slave in slaves]
-    tsx = str(root / 'node_modules' / '.bin' / 'tsx')
+    tsx = find_bin("tsx", root)
     emulator = subprocess.Popen([tsx, 'scripts/emulator.ts', paths[0], '115200'], cwd=root, stdout=subprocess.PIPE, text=True)
     children.append(emulator)
     if not select.select([emulator.stdout], [], [], 5)[0]:
