@@ -20,8 +20,8 @@ export const config = {
     jawZ: 0.015,
   },
   colors: {
-    fabric: "#d8ad71",
-    cuff: "#c99a5f",
+    fabric: "#D8DADD",
+    cuff: "#E8A6B8",
     mouth: "#4a272a",
     tongue: "#c97879",
     base: "#e7e9e4",
@@ -52,7 +52,7 @@ export const config = {
       label: "Jaw opening",
     },
   },
-  display: { width: 128, height: 64, format: "MONO1" },
+  display: { width: 64, height: 128, format: "MONO1" },
 } as const;
 export const frameBytes = (config.display.width * config.display.height) / 8;
 export const frameBase64Length = Math.ceil(frameBytes / 3) * 4;
