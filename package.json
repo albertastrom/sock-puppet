@@ -18,7 +18,7 @@
     "react": "~19.2.0",
     "react-dom": "~19.2.0",
     "three": "^0.180.0",
-    "@sock-puppet/robot": "file:../packages/robot"
+    "@sock-puppet/robot": "file:./robot"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

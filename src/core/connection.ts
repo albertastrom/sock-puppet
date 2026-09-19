@@ -1,8 +1,16 @@
-import { config } from "./config";
-import { errorResult, type Result } from "./protocol";
-import { Simulator } from "./simulator";
+import { Simulator } from "@sock-puppet/robot/simulator";
+import {
+  capabilitiesMessage,
+  errorResult,
+  stateMessage,
+  type Result,
+  type State,
+  type WireMessage,
+} from "@sock-puppet/robot/protocol";
+
 export type ConnectionStatus =
   "disconnected" | "connecting" | "connected" | "reconnecting";
+
 export class Connection {
   private socket?: WebSocket;
   private timer?: ReturnType<typeof setTimeout>;
@@ -10,6 +18,8 @@ export class Connection {
   private active = false;
   private attempt = 0;
   private generation = 0;
+  private previousEyes?: State["eyes"];
+  private onVisibility?: () => void;
   constructor(
     private simulator: Simulator,
     private onStatus: (status: ConnectionStatus) => void,
@@ -41,23 +51,21 @@ export class Connection {
       this.attempt = 0;
       this.onStatus("connected");
       this.onEvent("Controller connected");
-      this.send({
-        version: 1,
-        type: "capabilities",
-        motors: config.motors,
-        display: config.display,
-        eyeModes: ["parameters", "pixels"],
-        state: this.simulator.getState(),
-      });
-      this.telemetry = setInterval(
-        () =>
-          this.send({
-            version: 1,
-            type: "state",
-            ...this.simulator.getState(),
-          }),
-        50,
-      );
+      const state = this.simulator.getState();
+      this.send(capabilitiesMessage(state));
+      this.previousEyes = state.eyes;
+      const publish = () => {
+        const next = this.simulator.getState();
+        this.send(stateMessage(next, this.previousEyes));
+        this.previousEyes = next.eyes;
+      };
+      this.telemetry = setInterval(publish, 50);
+      if (typeof document !== "undefined") {
+        this.onVisibility = () => {
+          if (document.visibilityState === "visible") publish();
+        };
+        document.addEventListener("visibilitychange", this.onVisibility);
+      }
     };
     socket.onmessage = (event) => {
       if (generation !== this.generation || !this.active) return;
@@ -83,7 +91,7 @@ export class Connection {
     };
     socket.onclose = () => {
       if (generation !== this.generation) return;
-      clearInterval(this.telemetry);
+      this.stopTelemetry();
       this.simulator.freeze();
       this.onEvent("Connection lost · pose frozen");
       this.retry(url, generation);
@@ -95,18 +103,27 @@ export class Connection {
     const delay = Math.min(1000 * 2 ** this.attempt++, 10000);
     this.timer = setTimeout(() => this.open(url, generation), delay);
   }
-  private send(message: unknown) {
+  private send(message: WireMessage) {
     if (this.socket?.readyState === 1)
       this.socket.send(JSON.stringify(message));
   }
   disconnect() {
     this.active = false;
     this.generation++;
+    this.previousEyes = undefined;
     clearTimeout(this.timer);
-    clearInterval(this.telemetry);
+    this.stopTelemetry();
     this.socket?.close();
     this.socket = undefined;
     this.simulator.freeze();
     this.onStatus("disconnected");
+  }
+  private stopTelemetry() {
+    clearInterval(this.telemetry);
+    this.telemetry = undefined;
+    if (this.onVisibility && typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.onVisibility);
+      this.onVisibility = undefined;
+    }
   }
 }

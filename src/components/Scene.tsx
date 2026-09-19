@@ -8,10 +8,12 @@ import {
 } from "@react-three/drei";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { config, type Side } from "../core/config";
-import { paintEye } from "../core/display";
-import type { Eye } from "../core/protocol";
-import type { Simulator } from "../core/simulator";
+import { config, type Side } from "@sock-puppet/robot/config";
+import { paintEye } from "@sock-puppet/robot/display";
+import type { Eye } from "@sock-puppet/robot/protocol";
+import type { Simulator } from "@sock-puppet/robot/simulator";
+
+const { width: frameWidth, height: frameHeight } = config.display;
 
 function useFabric() {
   const texture = useMemo(() => {
@@ -45,11 +47,13 @@ function useFabric() {
   useEffect(() => () => texture.dispose(), [texture]);
   return texture;
 }
+
 function Screen({ side, simulator }: { side: Side; simulator: Simulator }) {
-  const last = useRef("");
+  const last = useRef<Eye | undefined>(undefined);
   const { canvas, texture } = useMemo(() => {
     const canvas = document.createElement("canvas");
-    canvas.width = canvas.height = 80;
+    canvas.width = frameWidth;
+    canvas.height = frameHeight;
     const texture = new THREE.CanvasTexture(canvas);
     texture.magFilter = texture.minFilter = THREE.NearestFilter;
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -58,26 +62,24 @@ function Screen({ side, simulator }: { side: Side; simulator: Simulator }) {
   }, []);
   useEffect(() => () => texture.dispose(), [texture]);
   useFrame(() => {
-    const eye = simulator.getState().eyes[side],
-      key = JSON.stringify(eye);
-    if (key !== last.current) {
-      paintEye(canvas, eye);
-      texture.needsUpdate = true;
-      last.current = key;
-    }
+    const eye = simulator.getState().eyes[side];
+    if (eye === last.current) return;
+    last.current = eye;
+    paintEye(canvas, eye);
+    texture.needsUpdate = true;
   });
   const d = config.dimensions;
   return (
-    <group position={[side === "left" ? 0.038 : -0.038, d.eyeY, d.eyeZ]}>
+    <group position={[side === "left" ? d.eyeX : -d.eyeX, d.eyeY, d.eyeZ]}>
       <RoundedBox
-        args={[d.eyeSize + 0.008, d.eyeSize + 0.008, 0.009]}
+        args={[d.eyeSize + 0.008, d.eyeSize / 2 + 0.008, 0.009]}
         radius={0.007}
         smoothness={4}
       >
-        <meshStandardMaterial color="#333c37" roughness={0.55} />
+        <meshStandardMaterial color="#333333" roughness={0.55} />
       </RoundedBox>
       <mesh position={[0, 0, 0.0046]}>
-        <planeGeometry args={[d.eyeSize, d.eyeSize]} />
+        <planeGeometry args={[d.eyeSize, d.eyeSize / 2]} />
         <meshStandardMaterial
           map={texture}
           emissiveMap={texture}
@@ -90,6 +92,7 @@ function Screen({ side, simulator }: { side: Side; simulator: Simulator }) {
     </group>
   );
 }
+
 function Puppet({ simulator, axes }: { simulator: Simulator; axes: boolean }) {
   const root = useRef<THREE.Group>(null),
     head = useRef<THREE.Group>(null),
@@ -255,6 +258,7 @@ function Puppet({ simulator, axes }: { simulator: Simulator; axes: boolean }) {
     </group>
   );
 }
+
 function CameraControls({ reset }: { reset: number }) {
   const ref = useRef<OrbitControlsImpl>(null);
   useEffect(() => {
@@ -276,6 +280,7 @@ function CameraControls({ reset }: { reset: number }) {
     />
   );
 }
+
 export function Scene({
   simulator,
   axes,
@@ -293,8 +298,8 @@ export function Scene({
       camera={{ position: [0.64, 0.45, 0.92], fov: 36, near: 0.01, far: 30 }}
       gl={{ antialias: true }}
     >
-      <color attach="background" args={["#e9ebe6"]} />
-      <fog attach="fog" args={["#e9ebe6", 1.8, 5]} />
+      <color attach="background" args={["#f5f5f5"]} />
+      <fog attach="fog" args={["#f5f5f5", 1.8, 5]} />
       <ambientLight intensity={1.4} />
       <hemisphereLight args={["#fff9ec", "#8d9a87", 1.3]} />
       <directionalLight
@@ -343,20 +348,5 @@ export function Scene({
       />
       <CameraControls reset={reset} />
     </Canvas>
-  );
-}
-export function EyePreview({ eye }: { eye: Eye }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    if (ref.current) paintEye(ref.current, eye);
-  }, [eye]);
-  return (
-    <canvas
-      ref={ref}
-      width={80}
-      height={80}
-      className="eye-preview"
-      aria-label="80 by 80 OLED framebuffer preview"
-    />
   );
 }

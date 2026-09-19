@@ -52,13 +52,13 @@ input.on("line", (line) => {
       },
     };
   } else if (line === "pixels") {
-    const frame = Buffer.alloc(19200);
-    for (let y = 0; y < 80; y++)
-      for (let x = 0; x < 80; x++) {
-        const i = (y * 80 + x) * 3;
-        frame[i] = Math.round((x / 79) * 255);
-        frame[i + 1] = Math.round((y / 79) * 255);
-        frame[i + 2] = 80;
+    const frame = Buffer.alloc(1024);
+    for (let y = 0; y < 64; y++)
+      for (let x = 0; x < 128; x++) {
+        if ((Math.floor(x / 8) + Math.floor(y / 8)) % 2 === 0) {
+          const i = y * 128 + x;
+          frame[i >> 3] |= 1 << (7 - (i & 7));
+        }
       }
     command = {
       version: 1,

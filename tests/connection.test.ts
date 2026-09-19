@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 import { Connection } from "../src/core/connection";
-import { Simulator } from "../src/core/simulator";
+import { Simulator } from "@sock-puppet/robot/simulator";
 const until = async (predicate: () => boolean, timeout = 4000) => {
   const start = Date.now();
   while (!predicate()) {
@@ -17,7 +17,12 @@ describe("WebSocket controller integration", () => {
     if (typeof address === "string" || !address)
       throw new Error("No server port");
     let peer: WebSocket | undefined;
-    const received: any[] = [];
+    const received: Array<{
+      type?: string;
+      id?: string | null;
+      motors?: { baseYaw: { angleDeg: number; moving: boolean } };
+      eyes?: unknown;
+    }> = [];
     let count = 0;
     server.on("connection", (socket) => {
       peer = socket;
@@ -40,7 +45,7 @@ describe("WebSocket controller integration", () => {
       expect(received[0]).toMatchObject({
         version: 1,
         type: "capabilities",
-        display: { width: 80, height: 80 },
+        display: { width: 128, height: 64 },
         state: { motors: { baseYaw: { angleDeg: 0 } } },
       });
       peer!.send(
@@ -54,24 +59,27 @@ describe("WebSocket controller integration", () => {
       await until(() =>
         received.some((m) => m.type === "ack" && m.id === "move"),
       );
-      s.step(1);
+      for (let i = 0; i < 100; i++) s.step(0.01);
+      const expectedAngle = s.getState().motors.baseYaw.angleDeg;
       await until(() =>
         received.some(
-          (m) => m.type === "state" && m.motors.baseYaw.angleDeg === 10,
+          (m) =>
+            m.type === "state" && m.motors?.baseYaw.angleDeg === expectedAngle,
         ),
       );
-      expect(
-        received.find(
-          (m) => m.type === "state" && m.motors.baseYaw.angleDeg === 10,
-        ).motors.baseYaw.moving,
-      ).toBe(true);
+      const telemetry = received.find(
+        (m) =>
+          m.type === "state" && m.motors?.baseYaw.angleDeg === expectedAngle,
+      )!;
+      expect(telemetry.motors!.baseYaw.moving).toBe(true);
+      expect(telemetry.eyes).toBeUndefined();
       peer!.send("{broken");
       await until(() => received.some((m) => m.type === "error"));
-      expect(received.find((m) => m.type === "error").id).toBeNull();
+      expect(received.find((m) => m.type === "error")!.id).toBeNull();
       peer!.close();
       await until(() => statuses.includes("reconnecting"));
       expect(s.getState().motors.baseYaw).toMatchObject({
-        targetDeg: 10,
+        targetDeg: expectedAngle,
         moving: false,
       });
       await until(
@@ -80,7 +88,7 @@ describe("WebSocket controller integration", () => {
           received.filter((m) => m.type === "capabilities").length === 2,
       );
       s.step(10);
-      expect(s.getState().motors.baseYaw.angleDeg).toBe(10);
+      expect(s.getState().motors.baseYaw.angleDeg).toBe(expectedAngle);
       peer!.send(
         JSON.stringify({
           version: 1,
@@ -90,7 +98,7 @@ describe("WebSocket controller integration", () => {
         }),
       );
       await until(() => received.some((m) => m.id === "fresh"));
-      s.step(1);
+      for (let i = 0; i < 100; i++) s.step(0.01);
       expect(s.getState().motors.baseYaw.angleDeg).toBe(-10);
       client.disconnect();
       expect(statuses.at(-1)).toBe("disconnected");

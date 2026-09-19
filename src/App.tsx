@@ -1,29 +1,23 @@
 import { NumberInput } from "./components/NumberInput";
-import { Component, useEffect, useRef, useState, type ReactNode } from "react";
-import { Scene, EyePreview } from "./components/Scene";
-import { Simulator } from "./core/simulator";
-import { Connection, type ConnectionStatus } from "./core/connection";
-import { config, joints, sides, type Joint, type Side } from "./core/config";
+import { Component, useState, type ReactNode } from "react";
+import { Scene } from "./components/Scene";
+import { EyePreview } from "./components/EyePreview";
+import {
+  config,
+  frameBytes,
+  joints,
+  sides,
+  type Joint,
+  type Side,
+} from "@sock-puppet/robot/config";
 import {
   defaultEye,
-  type Command,
+  eyeSymbols,
   type ParameterEye,
-  type Result,
-} from "./core/protocol";
-const example = JSON.stringify(
-  {
-    version: 1,
-    type: "command",
-    id: "hello-1",
-    motors: {
-      baseYaw: { angleDeg: 25, speedDegPerSec: 60 },
-      headPitch: { angleDeg: 10 },
-      jawOpen: { angleDeg: 20 },
-    },
-  },
-  null,
-  2,
-);
+  type SymbolEye,
+} from "@sock-puppet/robot/protocol";
+import { useTwin } from "./useTwin";
+
 class SceneBoundary extends Component<
   { children: ReactNode },
   { error: boolean }
@@ -43,142 +37,46 @@ class SceneBoundary extends Component<
     );
   }
 }
+
 export default function App() {
-  const [simulator] = useState(() => new Simulator());
-  const [state, setState] = useState(simulator.getState);
-  const [status, setStatus] = useState<ConnectionStatus>("disconnected");
-  const [url, setUrl] = useState("ws://localhost:8787");
-  const [events, setEvents] = useState<
-    { time: string; message: string; error: boolean }[]
-  >([]);
-  const [result, setResult] = useState("Ready to receive a command.");
-  const [json, setJson] = useState(example);
-  const [tab, setTab] = useState<"controls" | "protocol">("controls");
+  const {
+    simulator,
+    state,
+    status,
+    local,
+    url,
+    setUrl,
+    events,
+    setEvents,
+    result,
+    json,
+    setJson,
+    tab,
+    setTab,
+    speeds,
+    setSpeeds,
+    command,
+    pose,
+    setEye,
+    connectOrDisconnect,
+    sendJson,
+  } = useTwin();
   const [eyeSide, setEyeSide] = useState<Side>("left");
-  const [axes, setAxes] = useState(false),
-    [reset, setReset] = useState(0);
-  const [speeds, setSpeeds] = useState<Record<Joint, number>>({
-    baseYaw: 90,
-    headPitch: 90,
-    jawOpen: 90,
-  });
-  const counter = useRef(0);
-  const log = (message: string, response?: Result) =>
-    setEvents((previous) =>
-      [
-        {
-          time: new Date().toLocaleTimeString("en-GB"),
-          message,
-          error: response?.type === "error",
-        },
-        ...previous,
-      ].slice(0, 50),
-    );
-  const [connection] = useState(
-    () =>
-      new Connection(
-        simulator,
-        (nextStatus) => {
-          setStatus(nextStatus);
-          setState(simulator.getState());
-        },
-        log,
-      ),
-  );
-  const local = status === "disconnected";
-  useEffect(() => {
-    let frame = 0,
-      previous = performance.now(),
-      uiTime = previous;
-    const tick = (time: number) => {
-      simulator.step((time - previous) / 1000);
-      previous = time;
-      if (time - uiTime >= 50) {
-        setState(simulator.getState());
-        uiTime = time;
-      }
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => {
-      cancelAnimationFrame(frame);
-      connection.disconnect();
-    };
-  }, [simulator, connection]);
-  function submit(raw: unknown) {
-    if (!local) return;
-    const response = simulator.applyCommand(raw);
-    const message =
-      response.type === "ack" ? `Accepted ${response.id}` : response.message;
-    setResult(message);
-    log(message, response);
-    setState(simulator.getState());
-  }
-  function command(partial: Pick<Command, "motors" | "eyes">) {
-    submit({
-      version: 1,
-      type: "command",
-      id: `manual-${++counter.current}`,
-      ...partial,
-    });
-  }
-  function pose(yaw: number, pitch: number, jaw: number) {
-    command({
-      motors: {
-        baseYaw: { angleDeg: yaw, speedDegPerSec: speeds.baseYaw },
-        headPitch: { angleDeg: pitch, speedDegPerSec: speeds.headPitch },
-        jawOpen: { angleDeg: jaw, speedDegPerSec: speeds.jawOpen },
-      },
-    });
-  }
-  function editEye(update: Partial<ParameterEye>) {
-    const eye = state.eyes[eyeSide];
-    command({
-      eyes: {
-        [eyeSide]: {
-          ...(eye.mode === "parameters" ? eye : defaultEye()),
-          ...update,
-        },
-      },
-    });
-  }
-  const selectedEye = state.eyes[eyeSide],
-    parameterEye =
-      selectedEye.mode === "parameters" ? selectedEye : defaultEye();
-  const moving = joints.some((j) => state.motors[j].moving);
+  const [axes, setAxes] = useState(false);
+  const [reset, setReset] = useState(0);
+  const selectedEye = state.eyes[eyeSide];
+  const parameterEye: ParameterEye =
+    selectedEye.mode === "parameters" ? selectedEye : defaultEye();
+  const moving = joints.some((joint) => state.motors[joint].moving);
+  const { width, height } = config.display;
   return (
     <div className="app">
       <header className="topbar">
-        <a className="brand" href="./" aria-label="Purl home">
-          <span className="brand-icon">
-            p<span>•</span>
-          </span>
-          <strong>
-            purl<span className="brand-period">.</span>
-          </strong>
-        </a>
-        <div className="project-title">
-          <span className="divider" />
-          SOCK PUPPET <span className="muted">/</span>{" "}
-          <span className="muted">DIGITAL TWIN</span>
-        </div>
-        <div className="top-right">
-          <span className="version">PROTOTYPE 01</span>
-          <span className="live-badge">
-            <i />
-            SIMULATION LIVE
-          </span>
-        </div>
+        <h1>Digital twin</h1>
+        <span className="status">{moving ? "Moving" : "Holding position"}</span>
       </header>
       <main>
         <section className="viewport" aria-label="Puppet simulation">
-          <div className="scene-heading">
-            <div className="eyebrow">
-              A LITTLE CHARACTER. A LOT OF POSSIBILITY.
-            </div>
-            <h1>Meet Purl.</h1>
-            <p>A friendly face for your next big idea.</p>
-          </div>
           <SceneBoundary>
             <Scene simulator={simulator} axes={axes} reset={reset} />
           </SceneBoundary>
@@ -189,53 +87,24 @@ export default function App() {
               aria-pressed={axes}
               title="Show joint axes"
             >
-              ⌖ <span>Joint axes</span>
+              <span>Joint axes</span>
             </button>
             <button onClick={() => setReset((r) => r + 1)} title="Reset camera">
-              ↺ <span>Reset view</span>
+              <span>Reset view</span>
             </button>
-          </div>
-          <div className="spec-card">
-            <span className="eyebrow">PURL / MK. 01</span>
-            <div>
-              <strong>03</strong>
-              <span>servo joints</span>
-              <span className="spec-line" />
-              <strong>02</strong>
-              <span>OLED eyes</span>
-            </div>
-            <p>45 cm tall · A soft exterior. A curious mind.</p>
-          </div>
-          <div className="orientation">
-            <span>Y</span>
-            <svg width="48" height="46" viewBox="0 0 48 46" aria-hidden="true">
-              <path d="M24 27V4" stroke="#718d68" />
-              <path d="M24 27L44 38" stroke="#b38171" />
-              <path d="M24 27L5 38" stroke="#8297af" />
-              <circle cx="24" cy="27" r="3" fill="#616b5d" />
-            </svg>
-            <b>X</b>
-            <em>Z</em>
           </div>
           <div className="viewport-footer">
             <span>
               <i className="dot" />
-              {moving ? "JOINTS IN MOTION" : "HOLDING POSITION"}
+              {moving ? "Moving" : "Holding position"}
             </span>
             <span>
-              DRAG TO ORBIT <b>·</b> SCROLL TO ZOOM
+              Drag to orbit <b>·</b> Scroll to zoom
             </span>
-            <span>GRID 10 CM</span>
+            <span>Grid 10 cm</span>
           </div>
         </section>
         <aside className="panel">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">DEVELOPER WORKSPACE</span>
-              <h2>Control room</h2>
-            </div>
-            <span className="panel-mark">↗</span>
-          </div>
           <div className="connection-card">
             <div className="section-title">
               <span>Controller connection</span>
@@ -252,33 +121,12 @@ export default function App() {
                 onChange={(e) => setUrl(e.target.value)}
                 spellCheck={false}
               />
-              <button
-                className="dark"
-                onClick={() => {
-                  if (!local) connection.disconnect();
-                  else {
-                    try {
-                      connection.connect(url);
-                    } catch (error) {
-                      const message = (error as Error).message;
-                      setResult(message);
-                      log(message, {
-                        version: 1,
-                        type: "error",
-                        id: null,
-                        message,
-                      });
-                    }
-                  }
-                }}
-              >
+              <button className="dark" onClick={connectOrDisconnect}>
                 {local ? "Connect" : "Disconnect"}
               </button>
             </div>
             <p>
-              {local
-                ? "Explore manually, or connect an external controller."
-                : "External control active. Disconnect to use manual controls."}
+              {local ? "Manual controls enabled." : "External control active."}
             </p>
           </div>
           <div className="tabs" role="tablist" aria-label="Workspace">
@@ -305,96 +153,56 @@ export default function App() {
                 <section className="motor-section">
                   <div className="section-title">
                     <h3>Movement</h3>
-                    <span className="tag">3 SERVOS</span>
                   </div>
                   <fieldset disabled={!local}>
                     {joints.map((joint, index) => (
-                      <div className="motor" key={joint}>
-                        <div className="motor-title">
-                          <label htmlFor={joint}>
-                            <span className="number">0{index + 1}</span>
-                            {config.motors[joint].label}
-                          </label>
-                          <div className="angle-input">
-                            <NumberInput
-                              id={`${joint}-number`}
-                              aria-label={`${config.motors[joint].label} target`}
-                              min={config.motors[joint].min}
-                              max={config.motors[joint].max}
-                              value={state.motors[joint].targetDeg}
-                              onCommit={(angleDeg) =>
-                                command({
-                                  motors: {
-                                    [joint]: {
-                                      angleDeg,
-                                      speedDegPerSec: speeds[joint],
-                                    },
-                                  },
-                                })
-                              }
-                            />
-                            <span>°</span>
-                          </div>
-                        </div>
-                        <input
-                          id={joint}
-                          aria-label={config.motors[joint].label}
-                          type="range"
-                          min={config.motors[joint].min}
-                          max={config.motors[joint].max}
-                          step="1"
-                          value={state.motors[joint].targetDeg}
-                          onChange={(e) =>
-                            command({
-                              motors: {
-                                [joint]: {
-                                  angleDeg: +e.target.value,
-                                  speedDegPerSec: speeds[joint],
-                                },
+                      <MotorControl
+                        key={joint}
+                        joint={joint}
+                        index={index}
+                        targetDeg={state.motors[joint].targetDeg}
+                        angleDeg={state.motors[joint].angleDeg}
+                        speed={speeds[joint]}
+                        onAngle={(angleDeg) =>
+                          command({
+                            motors: {
+                              [joint]: {
+                                angleDeg,
+                                speedDegPerSec: speeds[joint],
                               },
-                            })
-                          }
-                        />
-                        <div className="motor-meta">
-                          <span>{config.motors[joint].min}°</span>
-                          <label>
-                            Speed{" "}
-                            <NumberInput
-                              aria-label={`${config.motors[joint].label} speed`}
-                              min="0.01"
-                              value={speeds[joint]}
-                              onCommit={(value) => {
-                                if (value > 0)
-                                  setSpeeds((s) => ({ ...s, [joint]: value }));
-                              }}
-                            />{" "}
-                            °/s
-                          </label>
-                          <span>
-                            ACT{" "}
-                            <b data-testid={`${joint}-actual`}>
-                              {state.motors[joint].angleDeg.toFixed(1)}°
-                            </b>
-                          </span>
-                          <span>{config.motors[joint].max}°</span>
-                        </div>
-                      </div>
+                            },
+                          })
+                        }
+                        onSpeed={(value) => {
+                          if (
+                            value >= 1 &&
+                            value <= config.motors[joint].maxSpeed
+                          )
+                            setSpeeds((current) => ({
+                              ...current,
+                              [joint]: value,
+                            }));
+                        }}
+                      />
                     ))}
                     <div className="presets">
-                      <span>TRY A POSE</span>
-                      <button onClick={() => pose(-20, 15, 8)}>
-                        Curious ↗
-                      </button>
-                      <button onClick={() => pose(15, 8, 30)}>Hello ♡</button>
                       <button
-                        onClick={() => {
-                          pose(0, 0, 0);
-                          command({
-                            eyes: { left: defaultEye(), right: defaultEye() },
-                          });
-                        }}
+                        className="stop"
+                        onClick={() => simulator.freeze()}
                       >
-                        ↺ Neutral
+                        Stop motion
+                      </button>
+                      <button onClick={() => pose(-20, 15, 8)}>Curious</button>
+                      <button onClick={() => pose(15, 8, 30)}>Hello</button>
+                      <button
+                        onClick={() =>
+                          pose(0, 0, 0, {
+                            left: defaultEye(),
+                            right: defaultEye(),
+                          })
+                        }
+                      >
+                        Neutral
                       </button>
                     </div>
                   </fieldset>
@@ -402,7 +210,9 @@ export default function App() {
                 <section className="eyes-section">
                   <div className="section-title">
                     <h3>Eye displays</h3>
-                    <span className="tag">80 × 80 PX</span>
+                    <span className="tag">
+                      {width} × {height} px
+                    </span>
                   </div>
                   <div className="eye-overview">
                     {sides.map((side) => (
@@ -420,43 +230,61 @@ export default function App() {
                     ))}
                   </div>
                   <fieldset disabled={!local}>
-                    {selectedEye.mode === "pixels" ? (
-                      <div className="pixel-notice">
-                        RGB888 framebuffer active.
-                        <button onClick={() => editEye({})}>
-                          Use parameter mode
-                        </button>
-                      </div>
-                    ) : (
+                    <label className="eye-mode">
+                      Display
+                      <select
+                        aria-label="Eye display"
+                        value={
+                          selectedEye.mode === "symbol"
+                            ? selectedEye.name
+                            : selectedEye.mode
+                        }
+                        onChange={(e) =>
+                          setEye(
+                            eyeSide,
+                            e.target.value === "parameters"
+                              ? defaultEye()
+                              : {
+                                  mode: "symbol",
+                                  name: e.target.value as SymbolEye["name"],
+                                  brightness: selectedEye.brightness,
+                                },
+                          )
+                        }
+                      >
+                        <option value="parameters">Pupil</option>
+                        {eyeSymbols.map((name) => (
+                          <option key={name} value={name}>
+                            {name[0].toUpperCase() + name.slice(1)}
+                          </option>
+                        ))}
+                        {selectedEye.mode === "pixels" && (
+                          <option value="pixels" disabled>
+                            Framebuffer
+                          </option>
+                        )}
+                      </select>
+                    </label>
+                    {selectedEye.mode === "parameters" && (
                       <>
                         <div className="eye-coordinates">
                           {(["x", "y"] as const).map((axis) => (
                             <label key={axis}>
                               Pupil {axis.toUpperCase()}
-                              <input
+                              <NumberInput
                                 aria-label={`Pupil ${axis.toUpperCase()}`}
-                                type="number"
-                                min="0"
-                                max="79"
+                                min={0}
+                                max={axis === "x" ? width - 1 : height - 1}
                                 value={parameterEye[axis]}
-                                onChange={(e) => {
-                                  if (e.target.value !== "")
-                                    editEye({ [axis]: +e.target.value });
-                                }}
+                                onCommit={(value) =>
+                                  setEye(eyeSide, {
+                                    ...parameterEye,
+                                    [axis]: value,
+                                  })
+                                }
                               />
                             </label>
                           ))}
-                          <label>
-                            Color
-                            <input
-                              aria-label="Eye color"
-                              type="color"
-                              value={parameterEye.color}
-                              onChange={(e) =>
-                                editEye({ color: e.target.value })
-                              }
-                            />
-                          </label>
                         </div>
                         <label className="eye-slider">
                           Eyelid opening
@@ -468,7 +296,10 @@ export default function App() {
                             step="0.01"
                             value={parameterEye.openness}
                             onChange={(e) =>
-                              editEye({ openness: +e.target.value })
+                              setEye(eyeSide, {
+                                ...parameterEye,
+                                openness: +e.target.value,
+                              })
                             }
                           />
                           <span>
@@ -487,23 +318,16 @@ export default function App() {
                         step="0.01"
                         value={selectedEye.brightness}
                         onChange={(e) =>
-                          command({
-                            eyes: {
-                              [eyeSide]: {
-                                ...selectedEye,
-                                brightness: +e.target.value,
-                              },
-                            },
+                          setEye(eyeSide, {
+                            ...selectedEye,
+                            brightness: +e.target.value,
                           })
                         }
                       />
                       <span>{Math.round(selectedEye.brightness * 100)}%</span>
                     </label>
                   </fieldset>
-                  <p className="hint">
-                    Eyes are independent. Pixel frames can be sent in the
-                    console.
-                  </p>
+                  <p className="hint">One monochrome eye per screen.</p>
                 </section>
               </>
             ) : (
@@ -526,22 +350,9 @@ export default function App() {
                 <button
                   className="dark send-button"
                   disabled={!local}
-                  onClick={() => {
-                    try {
-                      submit(JSON.parse(json));
-                    } catch (error) {
-                      const message = `Invalid JSON: ${(error as Error).message}`;
-                      setResult(message);
-                      log(message, {
-                        version: 1,
-                        type: "error",
-                        id: null,
-                        message,
-                      });
-                    }
-                  }}
+                  onClick={sendJson}
                 >
-                  Send command ↗
+                  Send command
                 </button>
                 <output className="command-result" aria-live="polite">
                   {result}
@@ -552,11 +363,12 @@ export default function App() {
                     Set either eye to{" "}
                     <code>
                       {
-                        '{ mode: "pixels", data: "<base64 RGB888>", brightness: 1 }'
+                        '{ mode: "pixels", data: "<base64 MONO1>", brightness: 1 }'
                       }
                     </code>
-                    . Each frame is 19,200 bytes: 80 × 80 RGB pixels, top-left
-                    origin, row-major order.
+                    . Each frame is {frameBytes.toLocaleString()} bytes: {width}{" "}
+                    × {height} bits, top-left origin, row-major, most
+                    significant bit first.
                   </p>
                 </details>
               </section>
@@ -584,17 +396,83 @@ export default function App() {
                 ) : (
                   <div className="empty-log">
                     <i className="dot" />
-                    <span>All quiet. Give Purl something to do.</span>
+                    <span>No events.</span>
                   </div>
                 )}
               </div>
             </section>
           </div>
-          <footer className="panel-footer">
-            <i className="dot" /> INPUT → SIMULATION → A LITTLE PERSONALITY
-          </footer>
         </aside>
       </main>
+    </div>
+  );
+}
+
+function MotorControl({
+  joint,
+  index,
+  targetDeg,
+  angleDeg,
+  speed,
+  onAngle,
+  onSpeed,
+}: {
+  joint: Joint;
+  index: number;
+  targetDeg: number;
+  angleDeg: number;
+  speed: number;
+  onAngle: (angleDeg: number) => void;
+  onSpeed: (speed: number) => void;
+}) {
+  const motor = config.motors[joint];
+  return (
+    <div className="motor">
+      <div className="motor-title">
+        <label htmlFor={joint}>
+          <span className="number">0{index + 1}</span>
+          {motor.label}
+        </label>
+        <div className="angle-input">
+          <NumberInput
+            id={`${joint}-number`}
+            aria-label={`${motor.label} target`}
+            min={motor.min}
+            max={motor.max}
+            value={targetDeg}
+            onCommit={onAngle}
+          />
+          <span>°</span>
+        </div>
+      </div>
+      <input
+        id={joint}
+        aria-label={motor.label}
+        type="range"
+        min={motor.min}
+        max={motor.max}
+        step="1"
+        value={targetDeg}
+        onChange={(e) => onAngle(+e.target.value)}
+      />
+      <div className="motor-meta">
+        <span>{motor.min}°</span>
+        <label>
+          Speed{" "}
+          <NumberInput
+            aria-label={`${motor.label} speed`}
+            min={1}
+            max={motor.maxSpeed}
+            value={speed}
+            onCommit={onSpeed}
+          />{" "}
+          °/s
+        </label>
+        <span>
+          Actual <b data-testid={`${joint}-actual`}>{angleDeg.toFixed(1)}°</b>
+        </span>
+        <span>{motor.max}°</span>
+      </div>
     </div>
   );
 }

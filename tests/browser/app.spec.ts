@@ -6,8 +6,10 @@ test("manual controls, independent eyes, console validation, and neutral reset",
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Meet Purl." })).toBeVisible();
-  await page.getByRole("button", { name: "Hello ♡" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Digital twin" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Hello" }).click();
   await expect(page.getByTestId("jawOpen-actual")).toHaveText("30.0°");
   const target = page.getByLabel("Base rotation target");
   await target.fill("");
@@ -16,7 +18,7 @@ test("manual controls, independent eyes, console validation, and neutral reset",
   await expect(page.getByTestId("baseYaw-actual")).toHaveText("-25.0°");
   await page.getByLabel("Pupil X", { exact: true }).fill("20");
   await page.getByRole("button", { name: "right eye" }).click();
-  await expect(page.getByLabel("Pupil X", { exact: true })).toHaveValue("40");
+  await expect(page.getByLabel("Pupil X", { exact: true })).toHaveValue("64");
   await page.getByRole("tab", { name: "Command console" }).click();
   await page.getByLabel("JSON command").fill(
     JSON.stringify({
@@ -68,12 +70,12 @@ test("external commands lock manual controls and disconnection freezes", async (
       .getByLabel("WebSocket URL")
       .fill(`ws://127.0.0.1:${address.port}`);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Hello ♡" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Hello" })).toBeDisabled();
     await expect(page.getByLabel("Event log")).toContainText(
       "Accepted external",
     );
     await page.getByRole("button", { name: "Disconnect", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Hello ♡" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Hello" })).toBeEnabled();
     const target = Number(
       await page.getByLabel("Base rotation target").inputValue(),
     );
@@ -95,14 +97,16 @@ test("external commands lock manual controls and disconnection freezes", async (
 test("mobile viewport remains usable", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Meet Purl." })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Digital twin" }),
+  ).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     390,
   );
   await page.screenshot({ path: "test-results/mobile.png", fullPage: true });
 });
 
-test("renders the remaining joint extremes and RGB frame orientation", async ({
+test("renders the remaining joint extremes and monochrome frame orientation", async ({
   page,
 }) => {
   await page.goto("/");
@@ -127,20 +131,16 @@ test("renders the remaining joint extremes and RGB frame orientation", async ({
     await page.getByRole("tab", { name: "Manual controls" }).click();
     await expect(page.getByTestId("baseYaw-actual")).toHaveText(
       `${yaw.toFixed(1)}°`,
+      { timeout: 15000 },
     );
     await expect(page.getByTestId("headPitch-actual")).toHaveText(
       `${pitch.toFixed(1)}°`,
     );
     await page.screenshot({ path: `test-results/extreme-${yaw}.png` });
   }
-  const frame = Buffer.alloc(19200);
-  for (let y = 0; y < 80; y++)
-    for (let x = 0; x < 80; x++) {
-      const i = (y * 80 + x) * 3;
-      frame[i] = Math.round((x / 79) * 255);
-      frame[i + 1] = Math.round((y / 79) * 255);
-      frame[i + 2] = 80;
-    }
+  const frame = Buffer.alloc(1024);
+  frame[0] = 128;
+  frame[1023] = 1;
   await page.getByRole("tab", { name: "Command console" }).click();
   await page.getByLabel("JSON command").fill(
     JSON.stringify({
@@ -171,12 +171,50 @@ test("renders the remaining joint extremes and RGB frame orientation", async ({
       const ctx = (element as HTMLCanvasElement).getContext("2d")!;
       return [
         Array.from(ctx.getImageData(0, 0, 1, 1).data),
-        Array.from(ctx.getImageData(79, 79, 1, 1).data),
+        Array.from(ctx.getImageData(127, 63, 1, 1).data),
       ];
     });
   expect(samples).toEqual([
-    [0, 0, 80, 255],
-    [255, 255, 80, 255],
+    [255, 255, 255, 255],
+    [255, 255, 255, 255],
   ]);
   await page.screenshot({ path: "test-results/pixel-frame.png" });
+});
+
+test("rejects unsafe speed, selects symbols independently, and stops motion", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByLabel("Eye display").selectOption("heart");
+  await expect(page.getByLabel("Pupil X", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "right eye" }).click();
+  await expect(page.getByLabel("Eye display")).toHaveValue("parameters");
+  await expect(page.locator(".eye-preview").first()).toHaveAttribute(
+    "width",
+    "128",
+  );
+  await expect(page.locator(".eye-preview").first()).toHaveAttribute(
+    "height",
+    "64",
+  );
+  await page.getByRole("tab", { name: "Command console" }).click();
+  await page.getByLabel("JSON command").fill(
+    JSON.stringify({
+      version: 1,
+      type: "command",
+      id: "unsafe",
+      motors: { headPitch: { angleDeg: 10, speedDegPerSec: 61 } },
+    }),
+  );
+  await page.getByRole("button", { name: "Send command" }).click();
+  await expect(page.locator("output")).toContainText("between 1 and 60");
+  await page.getByRole("tab", { name: "Manual controls" }).click();
+  await page.getByLabel("Base rotation speed").fill("5");
+  await page.getByLabel("Base rotation speed").press("Enter");
+  await page.getByLabel("Base rotation target").fill("90");
+  await page.getByLabel("Base rotation target").press("Enter");
+  await page.getByRole("button", { name: "Stop motion" }).click();
+  const held = await page.getByTestId("baseYaw-actual").textContent();
+  await page.waitForTimeout(300);
+  await expect(page.getByTestId("baseYaw-actual")).toHaveText(held!);
 });
