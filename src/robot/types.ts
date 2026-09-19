@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { expressionIds, type Expression } from "@sock-puppet/robot/expressions";
+import { gestures } from "@sock-puppet/robot/actions";
 import { config, joints, sides } from "@sock-puppet/robot/config";
 import {
   eyeModes,
@@ -40,13 +42,35 @@ export const motorsSchema = z.object({
   headPitch: motorState,
   jawOpen: motorState,
 });
+const creatureSchema = z
+  .object({
+    behavior: z.enum(["stopped", "idle/listening", "thinking", "performing"]),
+    gesture: z.enum(gestures),
+    expression: z
+      .string()
+      .refine((v) => expressionIds.includes(v))
+      .transform((v) => v as Expression),
+    actionId: z.string().max(128).nullable(),
+    actionStatus: z.enum([
+      "idle",
+      "running",
+      "completed",
+      "canceled",
+      "expired",
+    ]),
+  })
+  .strict();
 export function validateState(
   raw: unknown,
   previous?: State,
   limits: Capabilities["motors"] = config.motors,
 ): State {
   const value = z
-    .object({ motors: motorsSchema, eyes: z.unknown().optional() })
+    .object({
+      motors: motorsSchema,
+      eyes: z.unknown().optional(),
+      creature: creatureSchema.optional(),
+    })
     .parse(raw);
   const incoming = value.eyes as State["eyes"] | undefined;
   const eyes = incoming ? { ...previous?.eyes, ...incoming } : previous?.eyes;
@@ -63,7 +87,11 @@ export function validateState(
         throw new Error("Telemetry outside joint limits");
     }
   }
-  return {motors:value.motors,eyes:eyes!,creature:(raw as State).creature ?? previous?.creature};
+  return {
+    motors: value.motors,
+    eyes: eyes!,
+    creature: value.creature ?? previous?.creature,
+  };
 }
 export function validateCapabilities(raw: unknown): Capabilities {
   const v = z
@@ -125,9 +153,14 @@ export function validateForRobot(
 ): Command {
   const parsed = parseCommand(command);
   if (!capabilities) throw new Error("Robot has not completed handshake");
-  if(parsed.creature?.kind==="act" && parsed.creature.action.yaw!==undefined) {
-    const yaw=parsed.creature.action.yaw, limit=capabilities.motors.baseYaw;
-    if(yaw<limit.min||yaw>limit.max)throw new Error("Yaw exceeds device range");
+  if (
+    parsed.creature?.kind === "act" &&
+    parsed.creature.action.yaw !== undefined
+  ) {
+    const yaw = parsed.creature.action.yaw,
+      limit = capabilities.motors.baseYaw;
+    if (yaw < limit.min || yaw > limit.max)
+      throw new Error("Yaw exceeds device range");
   }
   for (const joint of joints) {
     const m = parsed.motors?.[joint];

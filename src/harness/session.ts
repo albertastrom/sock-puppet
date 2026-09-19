@@ -1,338 +1,224 @@
+import { parseAct } from "@sock-puppet/robot/actions";
 import type { RobotClient } from "../robot/types";
 import type {
-  HistoryMessage,
-  Providers,
-  Transcriber,
+  LiveProvider,
+  LiveConnection,
+  LiveEvent,
+  ToolCall,
 } from "../providers/types";
-import { validatePerformance, type Performance } from "./performance";
-import { Scheduler, type Behavior } from "./scheduler";
+import { Scheduler } from "./scheduler";
 export type ConsoleEvent = { type: string; [key: string]: unknown };
-type Playing = {
-  token: number;
-  index: number;
-  text: string;
-  elapsed: number;
-  audioMs: number;
-  complete: () => void;
-  first: boolean;
-};
+/** Continuous voice session; playback epochs are local and unrelated to backend response IDs. */
 export class Session {
   readonly scheduler: Scheduler;
   active = false;
-  history: HistoryMessage[] = [];
-  private transcription?: Transcriber;
+  private live?: LiveConnection;
   private generation = 0;
   private sessionGeneration = 0;
   private abort?: AbortController;
-  private timer: ReturnType<typeof setInterval>;
-  private playing?: Playing;
-  private finalKeys = new Set<string>();
-  private replyStarted = 0;
-  private spokenParts: string[] = [];
-  private runningTurn = false;
+  private blocked = false;
+  private quietMs = 0;
+  private quietTimer?: ReturnType<typeof setTimeout>;
+  private lastPlayback = 0;
+  private actionEpoch = 0;
+  private lastMetrics = 0;
+  private sentSamples = 0;
   private unsubscribe: () => void;
+  private closing: Promise<void> = Promise.resolve();
   constructor(
     readonly robot: RobotClient,
-    private providers: Providers,
+    private provider: LiveProvider,
     private emit: (event: ConsoleEvent) => void,
-    private now = () => performance.now(),
   ) {
     this.scheduler = new Scheduler(robot, (message) => {
       if (this.active) this.fault(message);
     });
-    this.timer = setInterval(() => this.scheduler.tick(this.now()), 50);
     this.unsubscribe = robot.subscribe((event) => {
       this.emit({ type: "robot", event });
       if (event.type === "connection" && !event.connected && this.active)
         this.fault(event.message);
     });
   }
-  private behavior(value: Behavior) {
-    this.scheduler.setBehavior(value);
-    this.emit({ type: "session", active: this.active, behavior: value });
-  }
   async start() {
     if (this.active) return;
     if (!this.robot.connected)
       throw new Error("Connect a robot and wait for its capabilities first");
-    const sessionId = ++this.sessionGeneration;
+    const id = ++this.sessionGeneration;
     this.active = true;
-    this.finalKeys.clear();
+    await this.closing;
+    if (id !== this.sessionGeneration || !this.active) return;
+    this.abort = new AbortController();
+    this.blocked = false;
     this.emit({ type: "session", active: true, behavior: "starting" });
     try {
-      const stt = await this.providers.voice.transcribe(
+      const live = await this.provider.connect(
         (event) => {
-          if (!this.active || sessionId !== this.sessionGeneration) return;
-          if (!event.final || !event.text.trim()) {
-            this.emit({
-              type: "transcript",
-              ...event,
-              text: event.text.trim(),
-              role: "user",
-              final: false,
-            });
-            return;
-          }
-          const key = event.key ?? event.text;
-          if (this.finalKeys.has(key)) return;
-          this.finalKeys.add(key);
-          this.emit({
-            type: "transcript",
-            ...event,
-            text: event.text.trim(),
-            role: "user",
-          });
-          if (this.finalKeys.size > 100)
-            this.finalKeys.delete(this.finalKeys.values().next().value!);
-          void this.respond(event.text);
+          if (event.type === "usage")
+            this.emit({ type: "usage", session: id, value: event.value });
+          else if (id === this.sessionGeneration) this.event(event);
         },
-        (error) => {
-          if (this.active && sessionId === this.sessionGeneration)
-            this.fault(error.message);
-        },
+        (call) => this.tool(call, id),
+        this.abort.signal,
       );
-      if (!this.active || sessionId !== this.sessionGeneration) {
-        stt.close();
+      if (!this.active || id !== this.sessionGeneration) {
+        await live.close();
         return;
       }
-      this.transcription = stt;
-      this.behavior("idle/listening");
+      this.live = live;
+      this.beginPlayback();
+      this.scheduler.setBehavior("idle/listening");
+      this.emit({ type: "session", active: true, behavior: "idle/listening" });
     } catch (error) {
-      if (sessionId === this.sessionGeneration) this.fault(String(error));
+      if (id === this.sessionGeneration) this.fault(String(error));
       throw error;
     }
   }
   input(pcm: Buffer) {
-    if (this.active) this.transcription?.send(pcm);
+    if (this.active) this.live?.send(pcm);
   }
-  finalize() {
-    if (this.active) this.transcription?.finalize();
+  private beginPlayback() {
+    this.generation++;
+    this.lastPlayback = 0;
+    this.sentSamples = 0;
+    this.emit({ type: "audio.start", generation: this.generation });
   }
-  private saveInterrupted() {
-    const p = this.playing;
-    if (p && p.elapsed > 0 && p.text) {
-      // OpenAI PCM TTS does not provide word/character alignment. Never infer
-      // heard words from a fraction of the generated audio duration.
-      this.spokenParts.push(
-        `[Audio played for ${(p.elapsed / 1000).toFixed(1)} seconds; exact wording unavailable]`,
-      );
+  private event(event: LiveEvent) {
+    if (event.type === "usage") {
+      this.emit({ type: "usage", value: event.value });
+      return;
     }
-    if (this.runningTurn && this.spokenParts.length)
-      this.history.push({
-        role: "assistant",
-        content: this.spokenParts.join(" ") + " [interrupted]",
+    if (!this.active) return;
+    if (event.type === "delegation") {
+      if (event.active) {
+        this.actionEpoch++;
+        this.scheduler.stop(true);
+      }
+      this.scheduler.setBehavior(event.active ? "thinking" : "idle/listening");
+      return;
+    }
+    if (event.type === "error") {
+      this.fault(event.message);
+      return;
+    }
+    if (event.type === "transcript") {
+      this.emit({
+        type: "transcript.delta",
+        role: event.role,
+        text: event.text,
       });
-    this.spokenParts = [];
-    this.runningTurn = false;
+      return;
+    }
+    if (this.blocked) {
+      let energy = 0;
+      for (let i = 0; i < event.pcm.length; i += 2)
+        energy += (event.pcm.readInt16LE(i) / 32768) ** 2;
+      const rms = Math.sqrt(energy / Math.max(1, event.pcm.length / 2));
+      this.quietMs = rms < 0.012 ? this.quietMs + event.pcm.length / 48 : 0;
+      clearTimeout(this.quietTimer);
+      if (this.quietMs >= 300) this.resumePlayback();
+      else this.quietTimer = setTimeout(() => this.resumePlayback(), 300);
+      return;
+    }
+    this.sentSamples += event.pcm.length / 2;
+    this.emit({
+      type: "audio.chunk",
+      generation: this.generation,
+      pcm: event.pcm.toString("base64"),
+    });
+  }
+  private resumePlayback() {
+    if (!this.active || !this.blocked) return;
+    this.blocked = false;
+    this.quietMs = 0;
+    clearTimeout(this.quietTimer);
+    this.beginPlayback();
+  }
+  private async tool(call: ToolCall, sessionId: number) {
+    const epoch = this.actionEpoch;
+    if (!this.active || sessionId !== this.sessionGeneration || this.blocked)
+      return { status: "rejected", message: "Canceled or interrupted" };
+    const action = parseAct(call.arguments);
+    this.emit({ type: "action", id: call.callId, status: "requested", action });
+    const result = await this.scheduler.act(action, call.callId);
+    if (epoch !== this.actionEpoch || !this.active)
+      return { status: "canceled" };
+    const status = result.type === "ack" ? "accepted" : "rejected";
+    this.emit({ type: "action", id: call.callId, status, action });
+    return {
+      status,
+      ...(result.type === "error" ? { message: result.message } : {}),
+    };
   }
   interrupt(closeJaw = true) {
-    this.saveInterrupted();
+    if (!this.active) return;
     this.generation++;
-    this.abort?.abort();
-    this.abort = undefined;
-    this.playing?.complete();
-    this.playing = undefined;
+    this.actionEpoch++;
+    this.blocked = true;
+    this.quietMs = 0;
     this.emit({ type: "audio.clear", generation: this.generation });
     this.scheduler.stop(closeJaw);
-    if (this.active) this.behavior("idle/listening");
+    this.scheduler.setBehavior("idle/listening");
+    this.live?.interrupt();
+    clearTimeout(this.quietTimer);
+    this.quietTimer = setTimeout(() => this.resumePlayback(), 300);
   }
   stop(closeJaw = true) {
     this.active = false;
     this.sessionGeneration++;
-    this.transcription?.close();
-    this.transcription = undefined;
-    this.interrupt(closeJaw);
-    this.behavior("stopped");
+    this.generation++;
+    this.actionEpoch++;
+    this.abort?.abort();
+    this.abort = undefined;
+    clearTimeout(this.quietTimer);
+    this.emit({ type: "audio.clear", generation: this.generation });
+    this.scheduler.stop(closeJaw);
+    if (this.live) {
+      this.closing = this.live.close();
+      this.live = undefined;
+    }
+    this.emit({ type: "session", active: false, behavior: "stopped" });
   }
   fault(message: string) {
     this.stop();
-    this.behavior("faulted");
+    this.emit({ type: "session", active: false, behavior: "faulted" });
     this.emit({ type: "error", message });
   }
   resetHistory() {
     if (this.active)
       throw new Error("Stop the session before clearing conversation");
-    this.history = [];
     this.emit({ type: "history.cleared" });
-  }
-  async respond(text: string) {
-    if (!this.active || !text.trim()) return;
-    this.interrupt();
-    this.runningTurn = true;
-    this.spokenParts = [];
-    this.replyStarted = this.now();
-    const token = this.generation,
-      abort = (this.abort = new AbortController());
-    this.history.push({ role: "user", content: text.slice(0, 8000) });
-    this.history = this.history.slice(-24);
-    this.behavior("thinking");
-    try {
-      const caps = this.robot.getCapabilities()!,
-        state = this.robot.getState()!;
-      let plan: Performance;
-      try {
-        plan = validatePerformance(
-          await this.providers.planner.plan(
-            this.history,
-            caps,
-            state,
-            abort.signal,
-          ),
-          caps,
-        );
-      } catch (error) {
-        if (abort.signal.aborted) return;
-        plan = validatePerformance(
-          await this.providers.planner.plan(
-            this.history,
-            caps,
-            state,
-            abort.signal,
-            String(error),
-          ),
-          caps,
-        );
-      }
-      if (token !== this.generation || !this.active) return;
-      this.emit({ type: "performance", plan });
-      let totalAudioMs = 0;
-      for (let index = 0; index < plan.segments.length; index++) {
-        const segment = plan.segments[index];
-        if (token !== this.generation || !this.active) return;
-        this.behavior("performing");
-        this.scheduler.startSegment(segment);
-        let resolvePlayback!: () => void;
-        const playbackDone = new Promise<void>((resolve) => {
-          resolvePlayback = resolve;
-        });
-        const playing = (this.playing = {
-          token,
-          index,
-          text: segment.text,
-          elapsed: 0,
-          audioMs: 0,
-          complete: resolvePlayback,
-          first: true,
-        } as Playing);
-        const minDurationMs = segment.text.trim()
-          ? Math.max(0, ...segment.actions.map((action) => action.atMs))
-          : segment.durationMs;
-        this.emit({
-          type: "audio.start",
-          generation: token,
-          segment: index,
-          text: segment.text,
-          minDurationMs,
-        });
-        let deadline: ReturnType<typeof setTimeout> | undefined;
-        const timeout = new Promise<never>((_, reject) => {
-          deadline = setTimeout(
-            () =>
-              reject(
-                new Error("Audio playback timed out; check browser audio"),
-              ),
-            60000,
-          );
-        });
-        try {
-          await Promise.race([
-            (async () => {
-              if (segment.text.trim())
-                await this.providers.voice.speak(
-                  segment.text,
-                  abort.signal,
-                  (chunk) => {
-                    if (token !== this.generation) return;
-                    if (playing.audioMs + chunk.pcm.length / 48 > 45000)
-                      throw new Error("Speech exceeds 45 second segment limit");
-                    playing.audioMs += chunk.pcm.length / 48;
-                    totalAudioMs += chunk.pcm.length / 48;
-                    if (totalAudioMs > 120000)
-                      throw new Error(
-                        "Speech exceeds 120 second performance limit",
-                      );
-                    this.emit({
-                      type: "audio.chunk",
-                      generation: token,
-                      segment: index,
-                      pcm: chunk.pcm.toString("base64"),
-                    });
-                  },
-                );
-              if (token !== this.generation) return;
-              if (segment.text.trim() && playing.audioMs === 0)
-                throw new Error("OpenAI returned no speech audio");
-              this.emit({
-                type: "audio.end",
-                generation: token,
-                segment: index,
-              });
-              await playbackDone;
-            })(),
-            timeout,
-          ]);
-        } finally {
-          clearTimeout(deadline);
-        }
-        if (token !== this.generation || !this.active) return;
-        this.spokenParts.push(segment.text);
-        this.playing = undefined;
-        this.emit({
-          type: "transcript",
-          role: "assistant",
-          text: segment.text.trim(),
-          final: true,
-        });
-      }
-      this.history.push({
-        role: "assistant",
-        content:
-          this.spokenParts.join(" ").trim() || "[Performed a silent gesture]",
-      });
-      this.spokenParts = [];
-      this.runningTurn = false;
-      this.abort = undefined;
-      this.scheduler.stop();
-      this.behavior("idle/listening");
-    } catch (error) {
-      if (token === this.generation && this.active && !abort.signal.aborted)
-        this.fault(String(error));
-    }
   }
   playback(
     generation: number,
-    segment: number,
     elapsedMs: number,
     rms: number,
-    done: boolean,
+    queuedMs: number,
+    underrun: boolean,
   ) {
-    const p = this.playing;
     if (
-      !p ||
-      p.token !== generation ||
-      p.index !== segment ||
-      elapsedMs < p.elapsed ||
-      elapsedMs > 60000 ||
-      !Number.isFinite(elapsedMs) ||
-      !Number.isFinite(rms)
+      !this.active ||
+      this.blocked ||
+      generation !== this.generation ||
+      elapsedMs < this.lastPlayback ||
+      elapsedMs > this.sentSamples / 24 + 1
     )
       return;
-    p.elapsed = elapsedMs;
-    if (p.first) {
-      p.first = false;
-      if (p.index === 0)
-        this.emit({
-          type: "timing",
-          firstPlaybackMs: Math.round(this.now() - this.replyStarted),
-        });
+    this.lastPlayback = elapsedMs;
+    this.scheduler.playback(Math.max(0, Math.min(1, rms)));
+    if (Date.now() - this.lastMetrics >= 200) {
+      this.lastMetrics = Date.now();
+      this.emit({
+        type: "playback.metrics",
+        queuedMs,
+        underrun,
+        rms,
+        elapsedMs,
+      });
     }
-    this.scheduler.playback(elapsedMs, Math.max(0, Math.min(1, rms)));
-    this.scheduler.tick(this.now());
-    if (done) p.complete();
   }
   dispose() {
     this.stop();
-    clearInterval(this.timer);
     this.unsubscribe();
+    return this.closing;
   }
 }

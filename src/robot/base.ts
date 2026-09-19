@@ -86,8 +86,8 @@ export abstract class BaseRobot implements RobotClient {
           clearTimeout(this.flight.timer);
           this.flight.resolve(result);
           this.flight = undefined;
-          const next=this.queued.shift();
-          if(next)this.send(next);
+          const next = this.queued.shift();
+          if (next) this.send(next);
           this.emitPending();
         }
       } else throw new Error("Unexpected robot message");
@@ -111,8 +111,15 @@ export abstract class BaseRobot implements RobotClient {
     this.emit({ type: "connection", connected: false, message });
   }
   cancelPending() {
-    for(const p of this.queued) p.resolve({version:2,type:"error",id:p.command.id,message:"Canceled"});
-    this.queued=[]; this.emitPending();
+    for (const p of this.queued)
+      p.resolve({
+        version: 2,
+        type: "error",
+        id: p.command.id,
+        message: "Canceled",
+      });
+    this.queued = [];
+    this.emitPending();
   }
   private emitPending() {
     this.emit({
@@ -133,27 +140,66 @@ export abstract class BaseRobot implements RobotClient {
       });
     }
     return new Promise((resolve) => {
-      const pending: Pending = {command, resolve, expiresAt: command.creature?.kind === "act" ? Date.now()+command.creature.ttlMs : undefined};
-      if(this.flight) {
-        const last=this.queued.at(-1);
-        const kind=command.creature?.kind;
-        const replaceable=kind!=="act" && kind!=="stop";
-        if(last && replaceable && last.command.creature?.kind===kind) {
-          if(!kind) pending.command={...command,motors:{...last.command.motors,...command.motors},eyes:{...last.command.eyes,...command.eyes}};
+      const pending: Pending = {
+        command,
+        resolve,
+        expiresAt:
+          command.creature?.kind === "act"
+            ? Date.now() + command.creature.ttlMs
+            : undefined,
+      };
+      if (this.flight) {
+        const last = this.queued.at(-1);
+        const kind = command.creature?.kind;
+        const replaceable = kind !== "act" && kind !== "stop";
+        if (last && replaceable && last.command.creature?.kind === kind) {
+          if (!kind)
+            pending.command = {
+              ...command,
+              motors: { ...last.command.motors, ...command.motors },
+              eyes: { ...last.command.eyes, ...command.eyes },
+            };
           this.queued.pop();
-          last.resolve({version:2,type:"error",id:last.command.id,message:"Superseded by newer targets"});
+          last.resolve({
+            version: 2,
+            type: "error",
+            id: last.command.id,
+            message: "Superseded by newer targets",
+          });
         }
-        if(this.queued.length>=16) {resolve({version:2,type:"error",id:command.id,message:"Action queue full"});return;}
+        if (this.queued.length >= 16) {
+          resolve({
+            version: 2,
+            type: "error",
+            id: command.id,
+            message: "Action queue full",
+          });
+          return;
+        }
         this.queued.push(pending);
       } else this.send(pending);
       this.emitPending();
     });
   }
   private send(p: Pending) {
-    if(p.expiresAt!==undefined) {
-      const remaining=p.expiresAt-Date.now();
-      if(remaining<100) {p.resolve({version:2,type:"error",id:p.command.id,message:"Action expired"});const next=this.queued.shift();if(next)this.send(next);return;}
-      if(p.command.creature?.kind==="act")p.command={...p.command,creature:{...p.command.creature,ttlMs:remaining}};
+    if (p.expiresAt !== undefined) {
+      const remaining = p.expiresAt - Date.now();
+      if (remaining < 100) {
+        p.resolve({
+          version: 2,
+          type: "error",
+          id: p.command.id,
+          message: "Action expired",
+        });
+        const next = this.queued.shift();
+        if (next) this.send(next);
+        return;
+      }
+      if (p.command.creature?.kind === "act")
+        p.command = {
+          ...p.command,
+          creature: { ...p.command.creature, ttlMs: remaining },
+        };
     }
     this.flight = p;
     p.timer = setTimeout(() => {

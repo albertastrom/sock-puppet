@@ -7,16 +7,15 @@ import {
   validateForRobot,
   validateState,
 } from "../src/robot/types";
-import { validatePerformance } from "../src/harness/performance";
-import { Scheduler } from "../src/harness/scheduler";
-import { FakeRobot, silentPlan } from "./helpers";
+import { Creature } from "@sock-puppet/robot/creature";
+import { FakeRobot } from "./helpers";
 
 it.each(joints)(
   "enforces shared %s speed limits in manual and model commands",
   (joint) => {
     const caps = capabilitiesMessage(new Simulator().getState());
     const command = {
-      version: 1 as const,
+      version: 2 as const,
       type: "command" as const,
       id: "unsafe",
       motors: {
@@ -27,9 +26,6 @@ it.each(joints)(
       },
     };
     expect(() => validateForRobot(command, caps)).toThrow();
-    const plan = structuredClone(silentPlan);
-    plan.segments[0].actions[0].motors[joint] = command.motors[joint];
-    expect(() => validatePerformance(plan, caps)).toThrow();
   },
 );
 it("uses narrower device limits for commands, telemetry, idle and audio jaw", async () => {
@@ -43,7 +39,7 @@ it("uses narrower device limits for commands, telemetry, idle and audio jaw", as
   robot.getCapabilities = () => caps;
   const command = validateForRobot(
     {
-      version: 1,
+      version: 2,
       type: "command",
       id: "default",
       motors: { jawOpen: { angleDeg: 10 } },
@@ -54,7 +50,7 @@ it("uses narrower device limits for commands, telemetry, idle and audio jaw", as
   expect(() =>
     validateForRobot(
       {
-        version: 1,
+        version: 2,
         type: "command",
         id: "fast",
         motors: { jawOpen: { angleDeg: 10, speedDegPerSec: 31 } },
@@ -65,21 +61,20 @@ it("uses narrower device limits for commands, telemetry, idle and audio jaw", as
   const unsafeState = structuredClone(raw.state);
   unsafeState.motors.jawOpen.angleDeg = 21;
   expect(() => validateState(unsafeState, undefined, caps.motors)).toThrow();
-  const scheduler = new Scheduler(robot);
-  scheduler.setBehavior("idle/listening");
-  scheduler.tick(1000);
-  expect(robot.commands.at(-1)?.motors?.jawOpen?.speedDegPerSec).toBe(30);
-  const segment = structuredClone(silentPlan.segments[0]);
-  segment.text = "Hello";
-  scheduler.startSegment(segment);
-  scheduler.playback(1, 1);
-  scheduler.tick(1100);
-  expect(robot.commands.at(-1)?.motors?.jawOpen).toEqual({
-    angleDeg: 20,
-    speedDegPerSec: 30,
-  });
-  scheduler.stop();
-  expect(robot.commands.at(-1)?.motors?.jawOpen?.speedDegPerSec).toBe(30);
+  const creature = new Creature(7, caps.motors);
+  creature.accept(
+    { kind: "behavior", behavior: "idle/listening" },
+    "idle",
+    robot.getState(),
+  );
+  creature.accept(
+    { kind: "speech", rms: 1, sequence: 1 },
+    "audio",
+    robot.getState(),
+  );
+  const update = creature.tick(20);
+  expect(update?.motors?.jawOpen?.angleDeg).toBeLessThanOrEqual(20);
+  expect(update?.motors?.jawOpen?.speedDegPerSec).toBe(30);
 });
 it("rejects incompatible displays, excessive device limits and malformed telemetry", () => {
   const original = capabilitiesMessage(new Simulator().getState());

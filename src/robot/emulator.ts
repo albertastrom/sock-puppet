@@ -38,8 +38,9 @@ export function attachEmulator(
         send(capabilitiesMessage(state));
       } else if (msg.type === "heartbeat" && ready) lastContact = Date.now();
       else if (msg.type === "command" && ready) {
-        lastContact = Date.now();
-        send(simulator.applyCommand(raw));
+        const result = simulator.applyCommand(raw);
+        if (result.type === "ack") lastContact = Date.now();
+        send(result);
       } else send(errorResult(raw, new Error("Handshake required")));
     },
     (message) => send(errorResult(undefined, new Error(message))),

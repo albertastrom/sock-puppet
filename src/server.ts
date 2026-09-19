@@ -10,7 +10,7 @@ import { parseCommand } from "@sock-puppet/robot/protocol";
 import { WebSocketRobot } from "./robot/websocket";
 import { SerialRobot } from "./robot/serial";
 import type { RobotClient } from "./robot/types";
-import { createOpenAIProviders } from "./providers/openai";
+import { OpenAILive } from "./providers/openai-live";
 import { Session, type ConsoleEvent } from "./harness/session";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const port = Number(process.env.PORT ?? 8788),
@@ -39,7 +39,7 @@ const emit = (event: ConsoleEvent) => {
   }
   operator.send(JSON.stringify(event));
 };
-const providers = createOpenAIProviders();
+const providers = new OpenAILive();
 function createRobot(
   kind: string,
   serialPath = process.env.SERIAL_PATH ?? "",
@@ -120,7 +120,6 @@ const controls = z.discriminatedUnion("type", [
   z.object({ type: z.literal("stop") }),
   z.object({ type: z.literal("motion.stop") }),
   z.object({ type: z.literal("interrupt") }),
-  z.object({ type: z.literal("finalize") }),
   z.object({ type: z.literal("history.clear") }),
   z.object({ type: z.literal("ports") }),
   z.object({
@@ -133,10 +132,10 @@ const controls = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("playback"),
     generation: z.number().int(),
-    segment: z.number().int(),
-    elapsedMs: z.number().min(0).max(60000),
+    elapsedMs: z.number().finite().min(0),
     rms: z.number().min(0).max(1),
-    done: z.boolean(),
+    queuedMs: z.number().min(0).max(2000),
+    underrun: z.boolean(),
   }),
   z.object({ type: z.literal("audio.error"), message: z.string().max(1000) }),
 ]);
@@ -190,9 +189,6 @@ wss.on("connection", (socket) => {
         case "start":
           await session.start();
           break;
-        case "finalize":
-          session.finalize();
-          break;
         case "history.clear":
           session.resetHistory();
           break;
@@ -202,10 +198,10 @@ wss.on("connection", (socket) => {
         case "playback":
           session.playback(
             msg.generation,
-            msg.segment,
             msg.elapsedMs,
             msg.rms,
-            msg.done,
+            msg.queuedMs,
+            msg.underrun,
           );
           break;
         case "audio.error":
@@ -224,7 +220,7 @@ wss.on("connection", (socket) => {
             throw new Error("Select a serial port");
           switching = true;
           try {
-            session.dispose();
+            await session.dispose();
             await robot.disconnect();
             transport = msg.transport;
             robot = createRobot(transport, msg.path, msg.baud);
@@ -280,7 +276,7 @@ server.listen(port, "127.0.0.1", () =>
   ),
 );
 async function shutdown() {
-  session.dispose();
+  await session.dispose();
   operator?.terminate();
   await robot.disconnect();
   wss.close();

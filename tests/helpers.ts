@@ -6,7 +6,6 @@ import {
   type Command,
   type Result,
 } from "@sock-puppet/robot/protocol";
-import type { Performance } from "../src/harness/performance";
 import type { Capabilities, RobotClient, RobotEvent } from "../src/robot/types";
 export function pair() {
   let a: Duplex, b: Duplex;
@@ -27,7 +26,7 @@ export function pair() {
   return [a, b] as const;
 }
 export const caps = (sim = new Simulator()): Capabilities => ({
-  version: 1,
+  version: 2,
   type: "capabilities",
   motors: config.motors,
   display: config.display,
@@ -35,7 +34,7 @@ export const caps = (sim = new Simulator()): Capabilities => ({
   state: sim.getState(),
 });
 export const command = (id = "test", angleDeg = 25): Command => ({
-  version: 1,
+  version: 2,
   type: "command",
   id,
   motors: { baseYaw: { angleDeg, speedDegPerSec: 60 } },
@@ -77,22 +76,3 @@ export class FakeRobot implements RobotClient {
     for (const fn of this.listeners) fn(e);
   }
 }
-export const silentPlan: Performance = {
-  segments: [
-    {
-      text: "",
-      durationMs: 500,
-      actions: [
-        {
-          atMs: 0,
-          motors: {
-            baseYaw: { angleDeg: 20, speedDegPerSec: 30 },
-            headPitch: null,
-            jawOpen: null,
-          },
-          eyes: { left: null, right: null },
-        },
-      ],
-    },
-  ],
-};

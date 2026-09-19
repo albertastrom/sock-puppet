@@ -19,13 +19,13 @@ function worklet() {
           onmessage: undefined,
         };
       },
-      registerProcessor: (_: string, klass: unknown) => {
-        Klass = klass;
+      registerProcessor: (_: string, k: unknown) => {
+        Klass = k;
       },
     },
   );
-  const node = new Klass();
-  const send = (m: unknown) => node.port.onmessage({ data: m });
+  const node = new Klass(),
+    send = (m: unknown) => node.port.onmessage({ data: m });
   const render = (blocks: number, input = 0) => {
     for (let i = 0; i < blocks; i++)
       node.process(
@@ -33,69 +33,64 @@ function worklet() {
         [[new Float32Array(128)]],
       );
   };
-  return { node, messages, send, render };
+  return { node, send, render, messages };
 }
-it("captures bounded PCM chunks and silence does not trigger speech", () => {
+it("captures continuous bounded PCM and never interrupts on microphone amplitude", () => {
   const h = worklet();
-  h.render(400);
+  h.render(100, 0.4);
   expect(h.messages.some((m) => m.type === "speech.start")).toBe(false);
-  const captures = h.messages.filter((m) => m.type === "capture");
-  expect(captures.length).toBeGreaterThan(0);
-  expect(captures.every((m) => m.pcm.byteLength === 4800)).toBe(true);
-});
-it("does not advance the playback clock during an underrun", () => {
-  const h = worklet();
-  h.send({ type: "start", generation: 1, segment: 0, minDurationMs: 0 });
-  h.render(40);
-  expect(h.messages.filter((m) => m.type === "playback")).toHaveLength(0);
-  h.send({
-    type: "chunk",
-    generation: 1,
-    segment: 0,
-    pcm: new Int16Array(2400).fill(3000).buffer,
-  });
-  h.render(80);
   expect(
-    h.messages.filter((m) => m.type === "playback").at(-1).elapsedMs,
-  ).toBeCloseTo(100);
-  h.send({ type: "end", generation: 1, segment: 0 });
-  h.render(1);
-  expect(h.messages.at(-1).done).toBe(true);
+    h.messages
+      .filter((m) => m.type === "capture")
+      .every((m) => m.pcm.byteLength === 4800),
+  ).toBe(true);
 });
-it("interrupts locally and rejects late chunks from the canceled generation", () => {
+it("reports RMS over the complete 20ms window, not its final block", () => {
   const h = worklet();
-  h.send({ type: "start", generation: 1, segment: 0, minDurationMs: 0 });
-  h.send({
-    type: "chunk",
-    generation: 1,
-    segment: 0,
-    pcm: new Int16Array(24000).fill(3000).buffer,
+  h.send({ type: "start", generation: 1 });
+  const pcm = new Int16Array(480);
+  pcm.fill(16384, 0, 240);
+  h.send({ type: "chunk", generation: 1, pcm: pcm.buffer });
+  h.render(8);
+  const progress = h.messages.find((m) => m.type === "playback");
+  expect(progress.rms).toBeCloseTo(Math.sqrt(0.125), 2);
+  expect(progress.elapsedMs).toBe(20);
+  h.render(8);
+  expect(h.messages.filter((m) => m.type === "playback").at(-1)).toMatchObject({
+    rms: 0,
+    underrun: true,
+    elapsedMs: 20,
   });
-  h.render(60, 0.1);
-  expect(h.messages.some((m) => m.type === "speech.start")).toBe(true);
-  expect(h.node.current).toBe(null);
-  h.send({
-    type: "chunk",
-    generation: 1,
-    segment: 0,
-    pcm: new Int16Array(2400).buffer,
-  });
+});
+it("clears immediately and rejects old audio and start epochs", () => {
+  const h = worklet();
+  h.send({ type: "start", generation: 1 });
+  h.send({ type: "clear", generation: 2 });
+  h.send({ type: "start", generation: 1 });
+  h.send({ type: "chunk", generation: 1, pcm: new Int16Array(100).buffer });
   expect(h.node.queue).toHaveLength(0);
+  expect(h.node.running).toBe(false);
 });
-it("muting and push-to-talk gate microphone samples", () => {
+it("gates microphone samples for mute and push-to-talk", () => {
   const h = worklet();
-  h.send({ type: "controls", muted: true, ptt: false, held: false });
-  h.render(80, 0.3);
-  expect(h.messages.some((m) => m.type === "speech.start")).toBe(false);
+  h.send({ type: "controls", muted: false, ptt: true, held: false });
+  h.render(40, 0.4);
   expect(
     new Int16Array(h.messages.find((m) => m.type === "capture").pcm).every(
-      (x) => x === 0,
+      (v) => v === 0,
     ),
   ).toBe(true);
-  h.send({ type: "controls", muted: false, ptt: true, held: false });
-  h.render(80, 0.3);
-  expect(h.messages.some((m) => m.type === "speech.start")).toBe(false);
   h.send({ type: "controls", muted: false, ptt: true, held: true });
-  h.render(80, 0.3);
-  expect(h.messages.some((m) => m.type === "speech.start")).toBe(true);
+  h.render(80, 0.4);
+  expect(
+    new Int16Array(
+      h.messages.filter((m) => m.type === "capture").at(-1).pcm,
+    ).some((v) => v > 0),
+  ).toBe(true);
+});
+it("bounds playback backlog", () => {
+  const h = worklet();
+  h.send({ type: "start", generation: 1 });
+  h.send({ type: "chunk", generation: 1, pcm: new Int16Array(48001).buffer });
+  expect(h.messages.at(-1).type).toBe("audio.error");
 });

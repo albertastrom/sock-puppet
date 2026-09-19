@@ -6,9 +6,9 @@ import { SerialRobot } from "../src/robot/serial";
 import { WebSocketRobot } from "../src/robot/websocket";
 import { attachEmulator } from "../src/robot/emulator";
 import { JsonLines } from "../src/robot/lines";
-import { caps, command, pair, silentPlan } from "./helpers";
+import { caps, command, pair } from "./helpers";
 import { Session, type ConsoleEvent } from "../src/harness/session";
-import type { Providers } from "../src/providers/types";
+import type { LiveProvider, ToolCall } from "../src/providers/types";
 import type { RobotClient } from "../src/robot/types";
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
@@ -44,7 +44,7 @@ async function setup(kind: string) {
       if (ws.readyState === WebSocket.OPEN)
         ws.send(
           JSON.stringify({
-            version: 1,
+            version: 2,
             type: "state",
             ...simulator.getState(),
           }),
@@ -62,9 +62,9 @@ async function setup(kind: string) {
 describe.each(["websocket", "serial"])("%s robot contract", (kind) => {
   it("handshakes, acknowledges acceptance and publishes actual motion", async () => {
     const { robot } = await setup(kind);
-    expect(robot.getCapabilities()?.display.width).toBe(128);
+    expect(robot.getCapabilities()?.display.width).toBe(64);
     expect(await robot.applyCommand(command())).toEqual({
-      version: 1,
+      version: 2,
       type: "ack",
       id: "test",
     });
@@ -106,7 +106,7 @@ describe.each(["websocket", "serial"])("%s robot contract", (kind) => {
     await robot.applyCommand(command("second", -10));
     const eye = { ...defaultEye(), openness: 0.4 };
     await robot.applyCommand({
-      version: 1,
+      version: 2,
       type: "command",
       id: "eye",
       eyes: { left: eye },
@@ -127,7 +127,7 @@ describe.each(["websocket", "serial"])("%s robot contract", (kind) => {
     expect(
       (
         await robot.applyCommand({
-          version: 1,
+          version: 2,
           type: "command",
           id: "pixels",
           eyes: { left: eye, right: eye },
@@ -141,36 +141,32 @@ describe.each(["websocket", "serial"])("%s robot contract", (kind) => {
     );
     expect(robot.getState()!.eyes.right).toEqual(eye);
   });
-  it("executes the same harness performance through either transport", async () => {
+  it("executes the same semantic action through either transport", async () => {
     const { robot } = await setup(kind);
-    const events: ConsoleEvent[] = [];
-    const providers: Providers = {
-      voice: {
-        transcribe: async () => ({ send() {}, finalize() {}, close() {} }),
-        speak: vi.fn(async () => {}),
+    let tool!: (call: ToolCall) => Promise<unknown>;
+    const provider: LiveProvider = {
+      connect: async (_, fn) => {
+        tool = fn;
+        return { send() {}, interrupt() {}, async close() {} };
       },
-      planner: { plan: vi.fn(async () => structuredClone(silentPlan)) },
     };
-    const session = new Session(robot, providers, (event) =>
-      events.push(event),
-    );
+    const session = new Session(robot, provider, () => {});
     cleanups.push(() => session.dispose());
     await session.start();
-    const turn = session.respond("Look left");
+    expect(
+      await tool({
+        delegationId: "d",
+        responseId: "r",
+        callId: "look",
+        name: "puppet_act",
+        arguments: { gesture: "look", yaw: 20 },
+      }),
+    ).toMatchObject({ status: "accepted" });
     await vi.waitFor(() =>
-      expect(events.some((event) => event.type === "audio.end")).toBe(true),
+      expect(robot.getState()?.creature?.actionId).toBe("look"),
     );
-    const start = events.find((event) => event.type === "audio.start")!;
-    session.playback(start.generation as number, 0, 0, 0, false);
     await vi.waitFor(() =>
-      expect(robot.getState()?.motors.baseYaw.targetDeg).toBe(20),
-    );
-    session.playback(start.generation as number, 0, 500, 0, true);
-    await turn;
-    expect(providers.planner.plan).toHaveBeenCalledTimes(1);
-    expect(providers.voice.speak).not.toHaveBeenCalled();
-    expect(session.history.at(-1)?.content).toBe(
-      "[Performed a silent gesture]",
+      expect(robot.getState()?.motors.baseYaw.angleDeg).toBeGreaterThan(0),
     );
   });
   it("requires a fresh handshake after disconnect", async () => {
@@ -209,7 +205,7 @@ it("serial watchdog freezes the current pose and requires a fresh hello", async 
     host.destroy();
     device.destroy();
   });
-  host.write('{"version":1,"type":"hello"}\n');
+  host.write('{"version":2,"type":"hello"}\n');
   host.write(JSON.stringify(command("move", 90)) + "\n");
   await vi.advanceTimersByTimeAsync(300);
   const frozen = emulator.simulator.getState().motors.baseYaw;
@@ -243,7 +239,7 @@ it("bounds backpressure, coalesces newest targets and cancels unsent work", asyn
   const latest = robot.applyCommand(command("latest", 30));
   expect((await old).type).toBe("error");
   expect(messages.filter((m) => m.type === "command")).toHaveLength(1);
-  device.write('{"version":1,"type":"ack","id":"first"}\n');
+  device.write('{"version":2,"type":"ack","id":"first"}\n');
   expect((await first).type).toBe("ack");
   await vi.waitFor(() =>
     expect(messages.filter((m) => m.type === "command")).toHaveLength(2),
@@ -254,7 +250,7 @@ it("bounds backpressure, coalesces newest targets and cancels unsent work", asyn
   const canceled = robot.applyCommand(command("cancel", 50));
   robot.cancelPending();
   expect((await canceled).type).toBe("error");
-  device.write('{"version":1,"type":"ack","id":"latest"}\n');
+  device.write('{"version":2,"type":"ack","id":"latest"}\n');
   expect((await latest).type).toBe("ack");
 });
 

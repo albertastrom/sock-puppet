@@ -1,36 +1,25 @@
-import type { Capabilities } from "../robot/types";
-import type { State } from "@sock-puppet/robot/simulator";
-export type HistoryMessage = { role: "user" | "assistant"; content: string };
-export type Transcript = { text: string; final: boolean; key?: string };
-export type SpeechChunk = {
-  pcm: Buffer;
+export type LiveEvent =
+  | { type: "audio"; pcm: Buffer }
+  | { type: "transcript"; role: "user" | "assistant"; text: string }
+  | { type: "delegation"; active: boolean }
+  | { type: "usage"; value: unknown }
+  | { type: "error"; message: string };
+export type ToolCall = {
+  delegationId: string;
+  responseId: string;
+  callId: string;
+  name: string;
+  arguments: unknown;
 };
-export interface Transcriber {
+export interface LiveConnection {
   send(pcm: Buffer): void;
-  finalize(): void;
-  close(): void;
+  interrupt(): void;
+  close(): Promise<void>;
 }
-export interface VoiceProvider {
-  transcribe(
-    onTranscript: (event: Transcript) => void,
-    onError: (error: Error) => void,
-  ): Promise<Transcriber>;
-  speak(
-    text: string,
-    signal: AbortSignal,
-    onChunk: (chunk: SpeechChunk) => void,
-  ): Promise<void>;
-}
-export interface PerformancePlanner {
-  plan(
-    history: HistoryMessage[],
-    capabilities: Capabilities,
-    state: State,
-    signal: AbortSignal,
-    repair?: string,
-  ): Promise<unknown>;
-}
-export interface Providers {
-  voice: VoiceProvider;
-  planner: PerformancePlanner;
+export interface LiveProvider {
+  connect(
+    onEvent: (event: LiveEvent) => void,
+    onTool: (call: ToolCall) => Promise<unknown>,
+    signal?: AbortSignal,
+  ): Promise<LiveConnection>;
 }

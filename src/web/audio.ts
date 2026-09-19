@@ -61,7 +61,6 @@ export class AudioIO {
       node.port.onmessage = ({ data }) => {
         if (epoch !== this.epoch) return false;
         if (data.type === "capture") this.sendPCM(data.pcm);
-        else if (data.type === "speech.start") this.send({ type: "interrupt" });
         else this.send(data);
       };
       this.source = context.createMediaStreamSource(stream);
@@ -88,11 +87,12 @@ export class AudioIO {
   }
   handle(message: Record<string, unknown>) {
     if (message.type === "audio.clear")
-      this.node?.port.postMessage({ type: "clear" });
+      this.node?.port.postMessage({
+        type: "clear",
+        generation: message.generation,
+      });
     if (message.type === "audio.start")
       this.node?.port.postMessage({ ...message, type: "start" });
-    if (message.type === "audio.end")
-      this.node?.port.postMessage({ ...message, type: "end" });
     if (message.type === "audio.chunk" && typeof message.pcm === "string") {
       const bytes = Uint8Array.from(atob(message.pcm), (c) => c.charCodeAt(0));
       this.node?.port.postMessage(

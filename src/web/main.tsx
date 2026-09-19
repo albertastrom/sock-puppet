@@ -19,7 +19,7 @@ function EyePreview({ eye, name }: { eye: Eye; name: string }) {
         width={config.display.width}
         height={config.display.height}
       />
-      <figcaption>{name} eye · 128 × 64</figcaption>
+      <figcaption>{name} eye · 64 × 128</figcaption>
     </figure>
   );
 }
@@ -45,17 +45,18 @@ function App() {
     [held, setHeld] = useState(false);
   const [error, setError] = useState(""),
     [linkMessage, setLinkMessage] = useState("Waiting for controller"),
-    [pending, setPending] = useState(0),
-    [latency, setLatency] = useState<number>();
+    [pending, setPending] = useState(0);
   const [transcripts, setTranscripts] = useState<
       { role: string; text: string }[]
     >([]),
     [partial, setPartial] = useState(""),
     [logs, setLogs] = useState<string[]>([]);
+  const [metrics, setMetrics] = useState({ queuedMs: 0, underrun: false });
+  const [usage, setUsage] = useState<unknown>();
   const [manual, setManual] = useState(
     JSON.stringify(
       {
-        version: 1,
+        version: 2,
         type: "command",
         id: "manual-1",
         motors: { headPitch: { angleDeg: 10, speedDegPerSec: 30 } },
@@ -135,6 +136,26 @@ function App() {
             setStarting(false);
             log(m.message);
             break;
+          case "transcript.delta":
+            setTranscripts((old) => {
+              const last = old.at(-1);
+              return last && last.role === m.role
+                ? [
+                    ...old.slice(0, -1),
+                    { role: m.role, text: (last.text + m.text).slice(-8000) },
+                  ]
+                : [...old, { role: m.role, text: m.text }].slice(-60);
+            });
+            break;
+          case "playback.metrics":
+            setMetrics(m);
+            break;
+          case "usage":
+            setUsage(m.value);
+            break;
+          case "action":
+            log(`${m.status}: ${m.action?.gesture ?? "action"}`);
+            break;
           case "transcript":
             if (typeof m.text !== "string") break;
             if (m.final) {
@@ -144,9 +165,6 @@ function App() {
                 );
               if (m.role === "user") setPartial("");
             } else setPartial(m.text.trim());
-            break;
-          case "timing":
-            setLatency(m.firstPlaybackMs);
             break;
           case "ports":
             setPorts(m.ports.map((p: { path: string }) => p.path));
@@ -228,6 +246,23 @@ function App() {
   };
   return (
     <main>
+      <aside className="live-metrics">
+        GPT Live 1 · Queue {Math.round(metrics.queuedMs)} ms{" "}
+        {metrics.underrun ? "· waiting for audio" : ""}
+        {state?.creature && (
+          <span>
+            {" "}
+            · {state.creature.behavior} · {state.creature.gesture} ·{" "}
+            {state.creature.expression} · {state.creature.actionStatus}
+          </span>
+        )}
+        {usage != null && (
+          <details>
+            <summary>Session usage</summary>
+            <pre>{JSON.stringify(usage, null, 2)}</pre>
+          </details>
+        )}
+      </aside>
       <header>
         <h1>Puppeteer</h1>
         <span className={`badge ${online ? "good" : ""}`}>
@@ -345,12 +380,8 @@ function App() {
           </div>
           <div className="metrics">
             <div>
-              <strong>
-                {latency !== undefined
-                  ? `${(latency / 1000).toFixed(2)}s`
-                  : "—"}
-              </strong>
-              <span>Response to playback</span>
+              <strong>{Math.round(metrics.queuedMs)} ms</strong>
+              <span>Audio queued</span>
             </div>
             <div>
               <strong>{pending}</strong>

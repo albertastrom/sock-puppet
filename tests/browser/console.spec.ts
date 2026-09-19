@@ -20,16 +20,14 @@ test("controls the actual twin through the puppeteer WebSocket and survives reco
   await twin.bringToFront();
   await expect(twin.getByTestId("headPitch-actual")).toHaveText("10.0°");
   await page.bringToFront();
-  await page
-    .getByLabel("Robot command JSON")
-    .fill(
-      JSON.stringify({
-        version: 1,
-        type: "command",
-        id: "long-move",
-        motors: { baseYaw: { angleDeg: 90, speedDegPerSec: 10 } },
-      }),
-    );
+  await page.getByLabel("Robot command JSON").fill(
+    JSON.stringify({
+      version: 2,
+      type: "command",
+      id: "long-move",
+      motors: { baseYaw: { angleDeg: 90, speedDegPerSec: 10 } },
+    }),
+  );
   await page.getByRole("button", { name: "Send command", exact: true }).click();
   await expect(
     page.getByRole("row").filter({ hasText: "baseYaw" }),
@@ -98,7 +96,7 @@ test("reports microphone denial without starting a session", async ({
 test("plays streaming PCM through a real AudioWorklet and releases the microphone", async ({
   page,
 }) => {
-  const progress: { elapsedMs: number; done: boolean }[] = [];
+  const progress: { elapsedMs: number; underrun: boolean }[] = [];
   await page.addInitScript(() => {
     const original = navigator.mediaDevices.getUserMedia.bind(
       navigator.mediaDevices,
@@ -175,7 +173,7 @@ test("plays streaming PCM through a real AudioWorklet and releases the microphon
   await page.getByLabel("Mute microphone", { exact: true }).check();
   await page.getByRole("button", { name: "Start listening" }).click();
   await expect
-    .poll(() => progress.some((p) => p.done && p.elapsedMs >= 500))
+    .poll(() => progress.some((p) => p.underrun && p.elapsedMs >= 500))
     .toBe(true);
   await page.getByRole("button", { name: "Stop session", exact: true }).click();
   await expect
