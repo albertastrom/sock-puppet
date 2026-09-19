@@ -273,7 +273,7 @@ input[type="range"] {
   width: 128px;
   max-width: 100%;
   height: auto;
-  aspect-ratio: 2;
+  aspect-ratio: 0.5;
   image-rendering: pixelated;
   background: #000;
 }

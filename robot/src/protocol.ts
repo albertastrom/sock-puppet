@@ -1,3 +1,4 @@
+import { expressionIds, type Expression } from "./expressions";
 import {
   config,
   frameBase64Length,
@@ -24,7 +25,8 @@ export type SymbolEye = {
   name: (typeof eyeSymbols)[number];
   brightness: number;
 };
-export type Eye = ParameterEye | SymbolEye | PixelEye;
+export type ExpressionEye = { mode: "expression"; name: Expression; x: number; y: number; size: number; convergence: number; openness: number; brightness: number; side: Side };
+export type Eye = ParameterEye | SymbolEye | PixelEye | ExpressionEye;
 export type MotorCommand = { angleDeg: number; speedDegPerSec?: number };
 export type Command = {
   version: 1;
@@ -46,7 +48,7 @@ export type State = {
   motors: Record<Joint, MotorState>;
   eyes: Record<Side, Eye>;
 };
-export const eyeModes = ["parameters", "symbol", "pixels"] as const;
+export const eyeModes = ["parameters", "symbol", "pixels", "expression"] as const;
 export type CapabilitiesMessage = {
   version: 1;
   type: "capabilities";
@@ -170,6 +172,14 @@ export function parseCommand(raw: unknown): Command {
           brightness: eye.brightness,
           openness: eye.openness,
         };
+      } else if (eye.mode === "expression") {
+        keys(eye, ["mode", "name", "x", "y", "size", "convergence", "openness", "brightness", "side"], side);
+        requireValue(expressionIds.includes(String(eye.name)), "Unknown expression");
+        number(eye.x, -1, 1, "gaze x"); number(eye.y, -1, 1, "gaze y");
+        number(eye.size, 0.5, 1.5, "pupil size"); number(eye.convergence, -1, 1, "convergence");
+        number(eye.openness, 0, 1, "openness");
+        requireValue(eye.side === side, "Expression side must match panel");
+        parsed[side] = {mode: "expression", name: eye.name as Expression, x: eye.x, y: eye.y, size: eye.size, convergence: eye.convergence, openness: eye.openness, brightness: eye.brightness, side};
       } else if (eye.mode === "symbol") {
         keys(eye, ["mode", "name", "brightness"], side);
         requireValue(
@@ -217,8 +227,8 @@ export function errorResult(
 
 export const defaultEye = (): ParameterEye => ({
   mode: "parameters",
-  x: 64,
-  y: 32,
+  x: 32,
+  y: 64,
   brightness: 1,
   openness: 1,
 });

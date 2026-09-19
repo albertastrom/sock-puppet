@@ -72,14 +72,14 @@ function Screen({ side, simulator }: { side: Side; simulator: Simulator }) {
   return (
     <group position={[side === "left" ? d.eyeX : -d.eyeX, d.eyeY, d.eyeZ]}>
       <RoundedBox
-        args={[d.eyeSize + 0.008, d.eyeSize / 2 + 0.008, 0.009]}
+        args={[d.eyeSize / 2 + 0.008, d.eyeSize + 0.008, 0.009]}
         radius={0.007}
         smoothness={4}
       >
         <meshStandardMaterial color="#333333" roughness={0.55} />
       </RoundedBox>
       <mesh position={[0, 0, 0.0046]}>
-        <planeGeometry args={[d.eyeSize, d.eyeSize / 2]} />
+        <planeGeometry args={[d.eyeSize / 2, d.eyeSize]} />
         <meshStandardMaterial
           map={texture}
           emissiveMap={texture}
@@ -91,6 +91,17 @@ function Screen({ side, simulator }: { side: Side; simulator: Simulator }) {
       </mesh>
     </group>
   );
+}
+
+function SockMaterial({ fabric }: { fabric: THREE.Texture }) {
+  return <meshStandardMaterial color="white" roughness={0.96} map={fabric} bumpMap={fabric} bumpScale={0.001}
+    onBeforeCompile={(shader) => {
+      shader.vertexShader = "varying vec2 sockUv;\n" + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace("#include <uv_vertex>", "#include <uv_vertex>\nsockUv = uv;");
+      shader.fragmentShader = "varying vec2 sockUv;\n" + shader.fragmentShader;
+      shader.fragmentShader = shader.fragmentShader.replace("#include <color_fragment>",
+        "#include <color_fragment>\nfloat band = step(0.5, fract(sockUv.y * 6.0));\ndiffuseColor.rgb *= mix(vec3(0.6867,0.7011,0.7231), vec3(0.8070,0.3813,0.4793), band);");
+    }} />;
 }
 
 function Puppet({ simulator, axes }: { simulator: Simulator; axes: boolean }) {
@@ -149,15 +160,7 @@ function Puppet({ simulator, axes }: { simulator: Simulator; axes: boolean }) {
     positions.needsUpdate = true;
     body.geometry.computeVertexNormals();
   });
-  const material = (
-    <meshStandardMaterial
-      color={c.fabric}
-      roughness={0.96}
-      map={fabric}
-      bumpMap={fabric}
-      bumpScale={0.001}
-    />
-  );
+  const material = <SockMaterial fabric={fabric} />;
   return (
     <group>
       <RoundedBox
@@ -207,7 +210,7 @@ function Puppet({ simulator, axes }: { simulator: Simulator; axes: boolean }) {
         {[0.045, 0.059, 0.073, 0.087].map((y) => (
           <mesh key={y} position={[0, y, 0]} rotation={[Math.PI / 2, 0, 0]}>
             <torusGeometry args={[0.063, 0.0015, 6, 64]} />
-            <meshStandardMaterial color="#dcb680" roughness={1} />
+            <meshStandardMaterial color="#D8DADD" roughness={1} />
           </mesh>
         ))}
         <group ref={head} position={[0, d.neckY, 0]}>
