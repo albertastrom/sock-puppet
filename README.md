@@ -4,9 +4,13 @@ GPT Live 1 voice controller for a three-servo sock puppet. Live hears and speaks
 
 ## Run
 
-Requires Node.js 22.12+, npm, an AudioWorklet-capable browser, and sibling `digital-twin/robot` sources.
+Requires Node.js 22.12+, npm, an AudioWorklet-capable browser, and sibling checkouts named `robot` and `digital-twin`:
 
 ```sh
+git clone https://github.com/albertastrom/sock-puppet-robot.git robot
+git clone https://github.com/albertastrom/sock-puppet-digital-twin.git digital-twin
+git clone https://github.com/albertastrom/sock-puppet-puppeteer.git puppeteer
+cd puppeteer
 npm install
 cp .env.example .env
 # Set OPENAI_API_KEY in .env.
@@ -14,7 +18,7 @@ npm run build
 npm start
 ```
 
-Open **http://127.0.0.1:8788**. Start the twin separately, connect it to **ws://127.0.0.1:8787**, then choose Start listening and grant microphone permission. The fixture server must be stopped because it uses the same robot port. Without an API key, manual control and the twin playground still work.
+Open **http://127.0.0.1:8788**. Start the [twin](https://github.com/albertastrom/sock-puppet-digital-twin) separately, connect it to **ws://127.0.0.1:8787**, then choose Start listening and grant microphone permission. The fixture server must be stopped because it uses the same robot port. Without an API key, manual control and the twin playground still work. Browser tests also start the sibling twin.
 
 | Setting                            | Default                          |
 | ---------------------------------- | -------------------------------- |
@@ -36,7 +40,7 @@ All services bind to loopback. The operator and twin connections enforce allowed
 - Live handles ordinary overlapping speech. Microphone volume does not automatically cancel the response, so acknowledgments can remain natural.
 - Interrupt clears queued playback and actions, tells Live to listen, and drops output until 300 ms of quiet is detected. This recovery threshold is configurable in code and needs testing with actual speakers. Stop closes the session; Stop motion also freezes all joints rather than closing the jaw.
 - Transport loss or switching stops voice and movement. Reconnect requires a new handshake and explicit Start; stale commands never replay.
-- Manual JSON uses [robot protocol v2](../digital-twin/robot/PROTOCOL.md) and is available while stopped. The twin playground previews all expressions, sequences, and gestures offline.
+- Manual JSON uses [robot protocol v2](https://github.com/albertastrom/sock-puppet-robot/blob/main/PROTOCOL.md) and is available while stopped. The twin playground previews all expressions, sequences, and gestures offline.
 - The console shows creature status, action acceptance/rejection, audio backlog, waiting-for-audio status, commands pending, and API usage events. Acceptance is not completion.
 
 Audio playback begins immediately. Semantic cues accompany ongoing speech; tool-only movements need no audio. No word-level alignment is claimed. The worklet reports actual speaker PCM RMS in complete 20 ms windows. Device-side attack/release smoothing and calibrated servo limits control the jaw. A missing envelope closes it after 150 ms.

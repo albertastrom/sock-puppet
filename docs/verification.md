@@ -4,10 +4,11 @@ Verified on 2026-09-19. Compatible implementation milestones:
 
 | Repository   | Commit    | Contents                                                                                        |
 | ------------ | --------- | ----------------------------------------------------------------------------------------------- |
-| digital-twin | `8a37600` | Portrait appearance, shared protocol v2/runtime, queued gestures, accessible playground         |
+| robot        | `ea4b4da` | Shared protocol v2, creature runtime, portrait renderer, queued gestures, eye-reference tests   |
+| digital-twin | `8a37600` | Portrait appearance, playground, and twin UI (robot package later extracted to its own repo)    |
 | puppeteer    | `3f779b3` | GPT Live provider, managed delegation, continuous PCM, semantic transport and integration tests |
 
-The subsequent documentation commits do not change the wire contract. Both repositories must be updated together; version-1 devices are incompatible.
+The subsequent documentation and repository-split commits do not change the wire contract. Keep the three sibling repositories on compatible commits; version-1 devices are incompatible.
 
 ## Automated results
 
