@@ -5,5 +5,13 @@
   "type": "module",
   "exports": {
     "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "typescript": "~5.9.2",
+    "vitest": "^5.0.1"
   }
 }

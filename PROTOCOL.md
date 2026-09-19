@@ -1,6 +1,6 @@
 # Robot protocol v2
 
-The twin and serial emulator implement this contract. Physical firmware is not included. Keep both sibling apps on compatible commits and reinstall their local package dependency after updating.
+The twin, puppeteer serial emulator, and this package implement the contract. Physical firmware is not included. Keep the sibling `robot`, `digital-twin`, and `puppeteer` repositories on compatible commits and reinstall each app’s local `file:../robot` dependency after updating.
 
 ## Envelope and handshake
 
