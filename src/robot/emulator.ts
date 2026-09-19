@@ -25,8 +25,8 @@ export function attachEmulator(
   const parser = new JsonLines(
     (raw) => {
       const msg = raw as { version: number; type: string };
-      if (msg?.version !== 1) {
-        send(errorResult(raw, new Error("Expected version 1")));
+      if (msg?.version !== 2) {
+        send(errorResult(raw, new Error("Expected version 2")));
         return;
       }
       if (msg.type === "hello") {

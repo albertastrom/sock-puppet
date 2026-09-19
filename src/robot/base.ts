@@ -11,6 +11,7 @@ type Pending = {
   command: Command;
   resolve: (r: Result) => void;
   timer?: ReturnType<typeof setTimeout>;
+  expiresAt?: number;
 };
 export abstract class BaseRobot implements RobotClient {
   connected = false;
@@ -19,7 +20,7 @@ export abstract class BaseRobot implements RobotClient {
   protected state?: State;
   private listeners = new Set<(e: RobotEvent) => void>();
   private flight?: Pending;
-  private queued?: Pending;
+  private queued: Pending[] = [];
   private lastReceived = 0;
   private monitor?: ReturnType<typeof setInterval>;
   abstract connect(): Promise<void>;
@@ -47,7 +48,7 @@ export abstract class BaseRobot implements RobotClient {
   protected receive(raw: unknown) {
     try {
       const msg = raw as Record<string, unknown>;
-      if (!msg || msg.version !== 1)
+      if (!msg || msg.version !== 2)
         throw new Error("Unsupported robot protocol");
       if (msg.type === "capabilities") {
         if (this.connected) throw new Error("Unexpected repeated handshake");
@@ -85,11 +86,8 @@ export abstract class BaseRobot implements RobotClient {
           clearTimeout(this.flight.timer);
           this.flight.resolve(result);
           this.flight = undefined;
-          if (this.queued) {
-            const next = this.queued;
-            this.queued = undefined;
-            this.send(next);
-          }
+          const next=this.queued.shift();
+          if(next)this.send(next);
           this.emitPending();
         }
       } else throw new Error("Unexpected robot message");
@@ -102,30 +100,24 @@ export abstract class BaseRobot implements RobotClient {
     clearInterval(this.monitor);
     this.connected = false;
     this.capabilities = undefined;
-    for (const p of [this.flight, this.queued])
+    for (const p of [this.flight, ...this.queued])
       if (p) {
         clearTimeout(p.timer);
-        p.resolve({ version: 1, type: "error", id: p.command.id, message });
+        p.resolve({ version: 2, type: "error", id: p.command.id, message });
       }
-    this.flight = this.queued = undefined;
+    this.flight = undefined;
+    this.queued = [];
     this.emitPending();
     this.emit({ type: "connection", connected: false, message });
   }
   cancelPending() {
-    if (this.queued)
-      this.queued.resolve({
-        version: 1,
-        type: "error",
-        id: this.queued.command.id,
-        message: "Canceled",
-      });
-    this.queued = undefined;
-    this.emitPending();
+    for(const p of this.queued) p.resolve({version:2,type:"error",id:p.command.id,message:"Canceled"});
+    this.queued=[]; this.emitPending();
   }
   private emitPending() {
     this.emit({
       type: "pending",
-      count: Number(!!this.flight) + Number(!!this.queued),
+      count: Number(!!this.flight) + this.queued.length,
     });
   }
   applyCommand(command: Command): Promise<Result> {
@@ -134,34 +126,35 @@ export abstract class BaseRobot implements RobotClient {
       if (!this.connected) throw new Error("Robot disconnected");
     } catch (e) {
       return Promise.resolve({
-        version: 1,
+        version: 2,
         type: "error",
         id: command.id,
         message: String(e),
       });
     }
     return new Promise((resolve) => {
-      const pending: Pending = { command, resolve };
-      if (this.flight) {
-        if (this.queued) {
-          pending.command = {
-            ...command,
-            motors: { ...this.queued.command.motors, ...command.motors },
-            eyes: { ...this.queued.command.eyes, ...command.eyes },
-          };
-          this.queued.resolve({
-            version: 1,
-            type: "error",
-            id: this.queued.command.id,
-            message: "Superseded by newer targets",
-          });
+      const pending: Pending = {command, resolve, expiresAt: command.creature?.kind === "act" ? Date.now()+command.creature.ttlMs : undefined};
+      if(this.flight) {
+        const last=this.queued.at(-1);
+        const kind=command.creature?.kind;
+        const replaceable=kind!=="act" && kind!=="stop";
+        if(last && replaceable && last.command.creature?.kind===kind) {
+          if(!kind) pending.command={...command,motors:{...last.command.motors,...command.motors},eyes:{...last.command.eyes,...command.eyes}};
+          this.queued.pop();
+          last.resolve({version:2,type:"error",id:last.command.id,message:"Superseded by newer targets"});
         }
-        this.queued = pending;
+        if(this.queued.length>=16) {resolve({version:2,type:"error",id:command.id,message:"Action queue full"});return;}
+        this.queued.push(pending);
       } else this.send(pending);
       this.emitPending();
     });
   }
   private send(p: Pending) {
+    if(p.expiresAt!==undefined) {
+      const remaining=p.expiresAt-Date.now();
+      if(remaining<100) {p.resolve({version:2,type:"error",id:p.command.id,message:"Action expired"});const next=this.queued.shift();if(next)this.send(next);return;}
+      if(p.command.creature?.kind==="act")p.command={...p.command,creature:{...p.command.creature,ttlMs:remaining}};
+    }
     this.flight = p;
     p.timer = setTimeout(() => {
       this.lost("Command acknowledgment timeout");

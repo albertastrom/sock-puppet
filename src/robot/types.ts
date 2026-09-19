@@ -50,7 +50,7 @@ export function validateState(
     .parse(raw);
   const incoming = value.eyes as State["eyes"] | undefined;
   const eyes = incoming ? { ...previous?.eyes, ...incoming } : previous?.eyes;
-  parseCommand({ version: 1, type: "command", id: "state-validation", eyes });
+  parseCommand({ version: 2, type: "command", id: "state-validation", eyes });
   if (!eyes?.left || !eyes.right) throw new Error("Incomplete eye state");
   for (const joint of joints) {
     if (value.motors[joint].speedDegPerSec > limits[joint].maxSpeed)
@@ -63,14 +63,12 @@ export function validateState(
         throw new Error("Telemetry outside joint limits");
     }
   }
-  return incoming
-    ? { motors: value.motors, eyes }
-    : { motors: value.motors, eyes: previous!.eyes };
+  return {motors:value.motors,eyes:eyes!,creature:(raw as State).creature ?? previous?.creature};
 }
 export function validateCapabilities(raw: unknown): Capabilities {
   const v = z
     .object({
-      version: z.literal(1),
+      version: z.literal(2),
       type: z.literal("capabilities"),
       motors: z.record(
         z.object({
@@ -109,7 +107,7 @@ export function validateCapabilities(raw: unknown): Capabilities {
   if (!eyeModes.every((mode) => v.eyeModes.includes(mode)))
     throw new Error("Pupil, symbol, and pixel display modes required");
   return {
-    version: 1,
+    version: 2,
     type: "capabilities",
     motors: v.motors as Capabilities["motors"],
     display: v.display,
@@ -127,6 +125,10 @@ export function validateForRobot(
 ): Command {
   const parsed = parseCommand(command);
   if (!capabilities) throw new Error("Robot has not completed handshake");
+  if(parsed.creature?.kind==="act" && parsed.creature.action.yaw!==undefined) {
+    const yaw=parsed.creature.action.yaw, limit=capabilities.motors.baseYaw;
+    if(yaw<limit.min||yaw>limit.max)throw new Error("Yaw exceeds device range");
+  }
   for (const joint of joints) {
     const m = parsed.motors?.[joint];
     if (!m) continue;

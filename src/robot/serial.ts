@@ -63,7 +63,7 @@ export class SerialRobot extends BaseRobot {
       started = true;
       const hello = () => {
         if (!this.connected && this.stream === stream && !stream.destroyed)
-          stream.write('{"version":1,"type":"hello"}\n');
+          stream.write('{"version":2,"type":"hello"}\n');
       };
       hello();
       this.helloRetry = setInterval(
@@ -81,7 +81,7 @@ export class SerialRobot extends BaseRobot {
       );
       this.heartbeat = setInterval(() => {
         if (!stream.destroyed && stream.writableLength < 1024)
-          stream.write('{"version":1,"type":"heartbeat"}\n');
+          stream.write('{"version":2,"type":"heartbeat"}\n');
       }, 250);
     };
     if (this.factory) queueMicrotask(begin);

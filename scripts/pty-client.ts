@@ -15,7 +15,7 @@ try {
   await robot.connect();
   await until(() => robot.connected);
   const result = await robot.applyCommand({
-    version: 1,
+    version: 2,
     type: "command",
     id: "pty-move",
     motors: { baseYaw: { angleDeg: 20, speedDegPerSec: 60 } },
@@ -30,7 +30,7 @@ try {
   assert.equal(
     (
       await robot.applyCommand({
-        version: 1,
+        version: 2,
         type: "command",
         id: "pty-pixels",
         eyes: { left: frame, right: frame },
@@ -43,7 +43,7 @@ try {
   assert.equal(
     (
       await robot.applyCommand({
-        version: 1,
+        version: 2,
         type: "command",
         id: "invalid",
         motors: { headPitch: { angleDeg: 100 } },
