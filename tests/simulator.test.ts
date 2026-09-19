@@ -11,7 +11,7 @@ import { renderEye, renderFrame } from "../src/display";
 import { config, joints, frameBase64Length, frameBytes } from "../src/config";
 
 const command = (parts: object) => ({
-  version: 1,
+  version: 2,
   type: "command",
   id: "test",
   ...parts,
@@ -29,7 +29,7 @@ describe("command validation and state", () => {
     expect(simulator.applyCommand(raw).type).toBe("ack");
     eye.x = 10;
     expect(simulator.getState().eyes.left).toMatchObject({ x: 25 });
-    expect(simulator.getState().eyes.right).toMatchObject({ x: 64 });
+    expect(simulator.getState().eyes.right).toMatchObject({ x: 32 });
     expect(simulator.getState().motors.headPitch.targetDeg).toBe(0);
     const idle = simulator.getState();
     expect(() => {
@@ -128,7 +128,7 @@ describe("command validation and state", () => {
   it("omits unchanged eyes from telemetry snapshots", () => {
     const s = new Simulator();
     const capabilities = capabilitiesMessage(s.getState());
-    expect(capabilities.eyeModes).toEqual(["parameters", "symbol", "pixels"]);
+    expect(capabilities.eyeModes).toEqual(["parameters", "symbol", "pixels", "expression"]);
     expect(capabilities.state.eyes.left.mode).toBe("parameters");
     const first = stateMessage(s.getState());
     expect(first.eyes).toBeDefined();

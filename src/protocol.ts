@@ -1,3 +1,5 @@
+import { parseCreature, type CreatureUpdate } from "./actions";
+import type { CreatureStatus } from "./creature";
 import { expressionIds, type Expression } from "./expressions";
 import {
   config,
@@ -29,15 +31,16 @@ export type ExpressionEye = { mode: "expression"; name: Expression; x: number; y
 export type Eye = ParameterEye | SymbolEye | PixelEye | ExpressionEye;
 export type MotorCommand = { angleDeg: number; speedDegPerSec?: number };
 export type Command = {
-  version: 1;
+  version: 2;
   type: "command";
   id: string;
+  creature?: CreatureUpdate;
   motors?: Partial<Record<Joint, MotorCommand>>;
   eyes?: Partial<Record<Side, Eye>>;
 };
 export type Result =
-  | { version: 1; type: "ack"; id: string }
-  | { version: 1; type: "error"; id: string | null; message: string };
+  | { version: 2; type: "ack"; id: string }
+  | { version: 2; type: "error"; id: string | null; message: string };
 export type MotorState = {
   angleDeg: number;
   targetDeg: number;
@@ -45,12 +48,13 @@ export type MotorState = {
   moving: boolean;
 };
 export type State = {
+  creature?: CreatureStatus;
   motors: Record<Joint, MotorState>;
   eyes: Record<Side, Eye>;
 };
 export const eyeModes = ["parameters", "symbol", "pixels", "expression"] as const;
 export type CapabilitiesMessage = {
-  version: 1;
+  version: 2;
   type: "capabilities";
   motors: typeof config.motors;
   display: typeof config.display;
@@ -58,8 +62,9 @@ export type CapabilitiesMessage = {
   state: State;
 };
 export type StateMessage = {
-  version: 1;
+  version: 2;
   type: "state";
+  creature?: CreatureStatus;
   motors: State["motors"];
   eyes?: State["eyes"];
 };
@@ -107,16 +112,20 @@ export function decodeFrame(data: string): Uint8Array {
 
 export function parseCommand(raw: unknown): Command {
   requireValue(object(raw), "Command must be an object");
-  keys(raw, ["version", "type", "id", "motors", "eyes"], "command");
+  keys(raw, ["version", "type", "id", "motors", "eyes", "creature"], "command");
   requireValue(
-    raw.version === 1 && raw.type === "command",
-    "Expected version 1 command",
+    raw.version === 2 && raw.type === "command",
+    "Expected version 2 command",
   );
   const id = raw.id;
   requireValue(
     typeof id === "string" && id.length > 0 && id.length <= 128,
     "id must be a nonempty string, at most 128 characters",
   );
+  if (raw.creature !== undefined) {
+    requireValue(raw.motors === undefined && raw.eyes === undefined, "Creature and manual updates cannot mix");
+    return {version:2,type:"command",id,creature:parseCreature(raw.creature)};
+  }
   let updates = 0;
   let motors: Command["motors"];
   if (raw.motors !== undefined) {
@@ -205,7 +214,7 @@ export function parseCommand(raw: unknown): Command {
   }
   requireValue(updates > 0, "Command needs at least one motor or eye update");
   return {
-    version: 1,
+    version: 2,
     type: "command",
     id,
     ...(motors ? { motors } : {}),
@@ -218,7 +227,7 @@ export function errorResult(
   error: unknown,
 ): Extract<Result, { type: "error" }> {
   return {
-    version: 1,
+    version: 2,
     type: "error",
     id: object(raw) && typeof raw.id === "string" ? raw.id : null,
     message: error instanceof Error ? error.message : "Invalid command",
@@ -235,7 +244,7 @@ export const defaultEye = (): ParameterEye => ({
 
 export function capabilitiesMessage(state: State): CapabilitiesMessage {
   return {
-    version: 1,
+    version: 2,
     type: "capabilities",
     motors: config.motors,
     display: config.display,
@@ -249,9 +258,10 @@ export function stateMessage(
   previousEyes?: State["eyes"],
 ): StateMessage {
   return {
-    version: 1,
+    version: 2,
     type: "state",
     motors: state.motors,
+    creature: state.creature,
     ...(state.eyes !== previousEyes ? { eyes: state.eyes } : {}),
   };
 }
