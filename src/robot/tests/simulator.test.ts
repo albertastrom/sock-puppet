@@ -199,15 +199,21 @@ describe("motor simulation", () => {
   });
   it("decelerates before reversing and limits movement after a stalled frame", () => {
     const s = new Simulator();
-    s.applyCommand(command({ motors: { baseYaw: { angleDeg: 90 } } }));
+    s.applyCommand(
+      command({ motors: { baseYaw: { angleDeg: 90, speedDegPerSec: 45 } } }),
+    );
     advance(s, 0.5);
     const before = s.getState().motors.baseYaw.angleDeg;
-    s.applyCommand(command({ motors: { baseYaw: { angleDeg: -90 } } }));
+    s.applyCommand(
+      command({ motors: { baseYaw: { angleDeg: -90, speedDegPerSec: 45 } } }),
+    );
     s.step(0.01);
     expect(s.getState().motors.baseYaw.angleDeg).toBeGreaterThan(before);
     advance(s, 5);
     expect(s.getState().motors.baseYaw.angleDeg).toBe(-90);
-    s.applyCommand(command({ motors: { baseYaw: { angleDeg: 90 } } }));
+    s.applyCommand(
+      command({ motors: { baseYaw: { angleDeg: 90, speedDegPerSec: 45 } } }),
+    );
     s.step(60);
     expect(s.getState().motors.baseYaw.angleDeg).toBeLessThan(-85);
     s.freeze();

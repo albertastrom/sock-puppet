@@ -47,7 +47,7 @@ function App() {
   const [robotUrl, setRobotUrl] = useState("ws://127.0.0.1:8787");
   const [transport, setTransport] = useState("websocket"),
     [serialPath, setSerialPath] = useState(""),
-    [baud, setBaud] = useState(921600),
+    [baud, setBaud] = useState(115200),
     [ports, setPorts] = useState<string[]>([]);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]),
     [mic, setMic] = useState(""),
@@ -62,7 +62,11 @@ function App() {
     >([]),
     [partial, setPartial] = useState(""),
     [logs, setLogs] = useState<string[]>([]);
-  const [metrics, setMetrics] = useState({ queuedMs: 0, underrun: false });
+  const [metrics, setMetrics] = useState({
+    queuedMs: 0,
+    underrun: false,
+    jawFallback: false,
+  });
   const [usage, setUsage] = useState<unknown>();
   const [manual, setManual] = useState(
     JSON.stringify(
@@ -123,6 +127,7 @@ function App() {
             if (!m.active) {
               void io.stop();
               setHeld(false);
+              setMetrics({ queuedMs: 0, underrun: false, jawFallback: false });
             }
             break;
           case "robot": {
@@ -159,7 +164,14 @@ function App() {
             });
             break;
           case "playback.metrics":
-            setMetrics(m);
+            setMetrics({
+              queuedMs: m.queuedMs,
+              underrun: m.underrun,
+              jawFallback: Boolean(m.jawFallback),
+            });
+            break;
+          case "audio.warning":
+            log(m.message);
             break;
           case "usage":
             setUsage(m.value);
@@ -346,6 +358,7 @@ function App() {
           <p className="live-metrics mt-3 font-mono text-[11px] text-mute">
             Queue {Math.round(metrics.queuedMs)} ms
             {metrics.underrun ? " · waiting for audio" : ""}
+            {metrics.jawFallback ? " · jaw fallback" : ""}
             {pending ? ` · ${pending} pending` : ""}
           </p>
           <div className="section-heading mt-5">

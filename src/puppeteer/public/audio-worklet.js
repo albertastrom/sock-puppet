@@ -33,11 +33,10 @@ class PuppetAudio extends AudioWorkletProcessor {
         const pcm = new Int16Array(m.pcm);
         if (this.queuedSamples + pcm.length > 24000 * 2) {
           this.port.postMessage({
-            type: "audio.error",
-            message: "Live playback backlog exceeds two seconds",
+            type: "audio.backpressure",
+            message: "Dropped Live audio to keep playback under two seconds",
+            queuedMs: this.queuedSamples / 24,
           });
-          this.clear();
-          this.running = false;
           return;
         }
         if (pcm.length) {

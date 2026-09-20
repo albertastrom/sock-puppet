@@ -130,7 +130,7 @@ it("rejects incompatible displays, excessive device limits and malformed telemet
       c.motors.headPitch.maxSpeed = 1000;
     },
     (c: any) => {
-      c.motors.headPitch.acceleration = 1000;
+      c.motors.headPitch.acceleration = 10000;
     },
     (c: any) => {
       c.state.motors.headPitch.speedDegPerSec = 1000;

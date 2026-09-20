@@ -26,6 +26,48 @@ An opt-in GPT Live session successfully opened and closed with final usage. A se
 
 That probe revealed that consecutive accepted actions needed device-local FIFO execution. A regression now verifies that a queued look does not cut a two-nod gesture short. The corrected queue passed unit tests; the paid probe was not repeated afterward.
 
+## Servo integration verification
+
+The 2026-09-19 lightweight-firmware integration adds a host-side Creature
+runtime and translates logical targets to the firmware's motor 1/2/3 text
+protocol. The firmware now accepts an absolute `=` command that clears one
+motor's relative queue and retargets it immediately; existing queued `+` and
+`-` commands are unchanged.
+
+Automated verification after this integration:
+
+- Robot: 53 tests passed.
+- Digital twin: 2 unit/integration tests passed.
+- Puppeteer: 47 tests passed, including 7 servo-profile tests for mapping,
+  coalescing, speech jaw drive, stop retargeting, reset/error handling, and
+  calibration.
+- All workspace production builds and the native protocol-v2 PTY serial smoke
+  passed. The existing Three.js bundle-size advisory remains.
+
+PlatformIO Core 6.2.0 detects the `uno_q` board through the `arduinoq`
+platform, and the firmware now includes a matching `platformio.ini`. A local
+macOS build cannot run because that platform currently ships MCU packages only
+for `linux_aarch64` and `linux_x86_64`; its supported path is a build on the
+UNO Q MPU or `pio remote run` through an authenticated MPU agent. No remote
+agent was available in this session. The in-memory firmware fixture verifies
+the host wire contract, but a Linux/remote compile, flashing, and physical
+motion remain bench acceptance.
+
 ## Remaining acceptance
 
-Real-room microphone/speaker testing and physical firmware integration are not completed. No conversational-latency, gesture-delay, physical jaw-alignment, or false-interruption measurements are claimed. Test pauses, acknowledgments, overlapping speech, explicit interruption/recovery, and combined expression requests using the eventual audio setup. Record those measurements before hardware deployment. Board-specific firmware, calibration, and physical stop behavior remain deferred as planned.
+Real-room microphone/speaker and physical servo testing are not completed. No
+conversational-latency, gesture-delay, physical jaw-alignment, or
+false-interruption measurements are claimed. Before deployment:
+
+1. Flash the board and check motors 1/2/3, centers, and signs at conservative
+   logical limits.
+2. Exercise idle, look, nod, shake, speech jaw, Stop motion, interrupt,
+   disconnect, and reconnect.
+3. Measure the extra firmware S-curve lag and tune speed/limits without assuming
+   the open-loop estimated state is measured position.
+4. Test pauses, acknowledgments, overlapping speech, explicit
+   interruption/recovery, and combined expression requests with the final audio
+   setup.
+
+OLED eye drivers remain intentionally deferred. Physical mode retains virtual
+eye preview only and has no firmware heartbeat watchdog.

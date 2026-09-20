@@ -103,6 +103,73 @@ it("cancels startup and cannot reactivate after stop", async () => {
   expect(close).toHaveBeenCalledOnce();
 });
 
+it("keeps the session up under backpressure and uses canned jaw until the queue recovers", async () => {
+  const h = await setup();
+  h.emit({ type: "audio", pcm: Buffer.alloc(4800) });
+  const gen = h.events.find((e) => e.type === "audio.start")!
+    .generation as number;
+  h.session.playback(gen, 20, 0.2, 80, false);
+  expect(h.robot.commands.at(-1)?.creature).toMatchObject({
+    kind: "speech",
+    rms: 0.2,
+  });
+  const before = h.robot.commands.length;
+  h.session.backpressure(
+    "Dropped Live audio to keep playback under two seconds",
+    1900,
+  );
+  expect(h.session.active).toBe(true);
+  expect(h.events.some((e) => e.type === "error")).toBe(false);
+  expect(h.events.some((e) => e.behavior === "faulted")).toBe(false);
+  expect(h.events).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        type: "audio.warning",
+        message: "Dropped Live audio to keep playback under two seconds",
+      }),
+      expect.objectContaining({
+        type: "playback.metrics",
+        jawFallback: true,
+        queuedMs: 1900,
+      }),
+    ]),
+  );
+  expect(h.robot.commands.at(-1)?.creature).toMatchObject({
+    kind: "talking",
+    on: true,
+  });
+  h.session.playback(gen, 40, 0.9, 800, false);
+  expect(
+    h.robot.commands.slice(before).some((c) => c.creature?.kind === "speech"),
+  ).toBe(false);
+  h.session.playback(gen, 60, 0, 700, true);
+  expect(h.robot.commands.at(-1)?.creature).toMatchObject({
+    kind: "talking",
+    on: false,
+  });
+  expect(h.session.active).toBe(true);
+  h.session.playback(gen, 80, 0.4, 100, false);
+  expect(h.robot.commands.at(-1)?.creature).toMatchObject({
+    kind: "speech",
+    rms: 0.4,
+  });
+  expect(
+    h.events.filter((e) => e.type === "playback.metrics").at(-1),
+  ).toMatchObject({ jawFallback: false, queuedMs: 100 });
+});
+it("switches to canned jaw when unplayed audio exceeds 500ms", async () => {
+  const h = await setup();
+  h.emit({ type: "audio", pcm: Buffer.alloc(4800) });
+  const gen = h.events.find((e) => e.type === "audio.start")!
+    .generation as number;
+  h.session.playback(gen, 20, 0.2, 600, false);
+  expect(h.session.active).toBe(true);
+  expect(h.events.some((e) => e.type === "error")).toBe(false);
+  expect(h.robot.commands.at(-1)?.creature).toMatchObject({
+    kind: "talking",
+    on: true,
+  });
+});
 it("does not start after a synchronous stop while awaiting previous closure", async () => {
   const provider: LiveProvider = { connect: vi.fn() };
   const session = new Session(new FakeRobot(), provider, () => {});

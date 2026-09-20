@@ -25,7 +25,7 @@ The voice prompt controls tutoring style and when to delegate; the backend promp
 
 ## Playback and interruption
 
-The continuous worklet maintains a local consumed-sample clock, resampling phase, bounded two-second playback queue, and full 20 ms RMS windows. It does not hard-interrupt on microphone amplitude. Mute and push-to-talk gate capture while preserving its cadence.
+The continuous worklet maintains a local consumed-sample clock, resampling phase, bounded two-second playback queue, and full 20 ms RMS windows. Overflow chunks are dropped with a warning; the session stays up and the jaw switches to a canned talk cycle until the queue drains. It does not hard-interrupt on microphone amplitude. Mute and push-to-talk gate capture while preserving its cadence.
 
 Explicit interruption clears local playback, invalidates delegated work, stops active creature motion, and sends a Live instruction to stop speaking. Output is dropped until 300 ms of low-energy audio (RMS below 0.012), or a 300 ms gap without audio, then playback resumes with a fresh generation. A model instruction acknowledgment is not used as proof that audio stopped. No discarded audio is replayed.
 

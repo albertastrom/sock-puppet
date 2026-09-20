@@ -6,3 +6,4 @@ screenshots/
 test-results/
 playwright-report/
 .DS_Store
+.pio/
