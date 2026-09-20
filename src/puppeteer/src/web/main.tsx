@@ -58,7 +58,8 @@ function App() {
     [held, setHeld] = useState(false);
   const [error, setError] = useState(""),
     [linkMessage, setLinkMessage] = useState("Waiting for controller"),
-    [pending, setPending] = useState(0);
+    [pending, setPending] = useState(0),
+    [wireStatus, setWireStatus] = useState("No firmware command sent");
   const [transcripts, setTranscripts] = useState<TranscriptRow[]>([]),
     [partial, setPartial] = useState(""),
     [logs, setLogs] = useState<string[]>([]);
@@ -142,6 +143,14 @@ function App() {
             }
             if (e.type === "state") setState(e.state);
             if (e.type === "pending") setPending(e.count);
+            if (e.type === "wire") {
+              const status =
+                e.phase === "ack"
+                  ? `${e.line} - acknowledged in ${e.latencyMs} ms`
+                  : `${e.line} - awaiting acknowledgment`;
+              setWireStatus(status);
+              if (e.phase === "sent") log(`Firmware TX ${e.line}`);
+            }
             if (e.type === "result")
               log(
                 e.result.type === "ack"
@@ -508,6 +517,11 @@ function App() {
               ))}
             </tbody>
           </table>
+          {transport === "serial" && (
+            <p className="mt-2 break-all font-mono text-[11px] leading-4 text-mute">
+              {wireStatus}
+            </p>
+          )}
           <section className="card mt-6">
             <div className="section-heading mb-2">
               <h3 className="text-[15px] font-medium">Manual control</h3>

@@ -47,6 +47,20 @@ const emit = (event: ConsoleEvent) => {
   operator.send(JSON.stringify(event));
 };
 const providers = new OpenAILive();
+/**
+ * macOS enumerates a USB board as /dev/tty.* (dial-in, blocks on carrier
+ * detect) alongside /dev/cu.* (callout). Only the callout device is usable
+ * here, and it is the one SERIAL_PATH documents.
+ */
+async function listPorts() {
+  const ports = await SerialPort.list();
+  if (process.platform !== "darwin") return ports;
+  return ports.map((port) =>
+    port.path.startsWith("/dev/tty.")
+      ? { ...port, path: port.path.replace("/dev/tty.", "/dev/cu.") }
+      : port,
+  );
+}
 function createRobot(
   kind: string,
   serialPath = process.env.SERIAL_PATH ?? "",
@@ -217,7 +231,7 @@ wss.on("connection", (socket) => {
           session.resetHistory();
           break;
         case "ports":
-          emit({ type: "ports", ports: await SerialPort.list() });
+          emit({ type: "ports", ports: await listPorts() });
           break;
         case "playback":
           session.playback(

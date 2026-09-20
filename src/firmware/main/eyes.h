@@ -9,9 +9,9 @@
 // three I2C controllers, so each eye gets a bus of its own and both panels can
 // keep the stock 0x3C address - no address jumper needed.
 //
-//   Wire  -> i2c2  SDA D20/PB11, SCL D21/PB10   left eye  (UNO header SDA/SCL)
+//   Wire  -> i2c2  SDA D20/PB11, SCL D21/PB10   right eye (UNO header SDA/SCL)
 //   Wire1 -> i2c4  Qwiic connector              unused
-//   Wire2 -> i2c3  SDA D18/PC1,  SCL D19/PC0    right eye (a.k.a. A4/A5)
+//   Wire2 -> i2c3  SDA D18/PC1,  SCL D19/PC0    left eye  (a.k.a. A4/A5)
 //
 // Pin muxing comes from the devicetree, not from begin(), so picking the bus is
 // the only wiring decision in the code. None of these pins collide with the
@@ -19,7 +19,7 @@
 //
 // D18/D19 are also A4/A5. That is just the pin mux - I2C3 drives them as an
 // ordinary open-drain digital bus, same as any other I2C. But it does mean they
-// cannot be ADC inputs while the right eye is live: analogRead(A4) or
+// cannot be ADC inputs while the left eye is live: analogRead(A4) or
 // analogRead(A5) would remux the pins away and the right panel would go dark.
 //
 // Drawing a frame ships a 1 KB buffer over the bus and blocks for roughly 20 ms
@@ -35,13 +35,13 @@
 #define OLED_ADDR 0x3C
 #define BUS_HZ 400000
 
-// Values match the serial command's eye index: eye,0,... is left.
+// values match the serial command's eye index: eye,0,... is left
 enum Eye { EYE_LEFT = 0, EYE_RIGHT = 1 };
 
 // u8g2 only ships transports for Wire (_HW_I2C) and Wire1 (_2ND_HW_I2C), and
 // the Wire1 one compiles to a stub unless the core defines
 // WIRE_INTERFACES_COUNT - which the Zephyr core does not. This is u8g2's stock
-// hardware-I2C callback with the bus passed in, so the right eye can reach
+// hardware-I2C callback with the bus passed in, so the left eye can reach
 // Wire2 and both eyes go down the same code path.
 static uint8_t eye_byte_cb(TwoWire &bus, u8x8_t *u8x8, uint8_t msg,
                            uint8_t arg_int, void *arg_ptr) {
@@ -76,12 +76,12 @@ static uint8_t eye_byte_cb(TwoWire &bus, u8x8_t *u8x8, uint8_t msg,
 // C linkage too - same as u8g2's own byte callbacks.
 extern "C" uint8_t u8x8_byte_left_eye(u8x8_t *u8x8, uint8_t msg,
                                       uint8_t arg_int, void *arg_ptr) {
-  return eye_byte_cb(Wire, u8x8, msg, arg_int, arg_ptr);
+  return eye_byte_cb(Wire2, u8x8, msg, arg_int, arg_ptr);
 }
 
 extern "C" uint8_t u8x8_byte_right_eye(u8x8_t *u8x8, uint8_t msg,
                                        uint8_t arg_int, void *arg_ptr) {
-  return eye_byte_cb(Wire2, u8x8, msg, arg_int, arg_ptr);
+  return eye_byte_cb(Wire, u8x8, msg, arg_int, arg_ptr);
 }
 
 // Full-buffer SH1106 (1 KB each), bound to whichever bus the callback talks to
@@ -137,13 +137,13 @@ static void eyesBegin(const char *bootExpression = "boot") {
   Wire2.begin();
   Wire2.setClock(BUS_HZ);
 
-  Wire.beginTransmission(OLED_ADDR);
-  bool leftOk = Wire.endTransmission() == 0;
   Wire2.beginTransmission(OLED_ADDR);
-  bool rightOk = Wire2.endTransmission() == 0;
-  Serial.print("EYES left (D20/D21): ");
+  bool leftOk = Wire2.endTransmission() == 0;
+  Wire.beginTransmission(OLED_ADDR);
+  bool rightOk = Wire.endTransmission() == 0;
+  Serial.print("EYES left (D18/D19): ");
   Serial.print(leftOk ? "ok" : "NO");
-  Serial.print("  right (D18/D19): ");
+  Serial.print("  right (D20/D21): ");
   Serial.println(rightOk ? "ok" : "NO");
 
   left_eye.setI2CAddress(OLED_ADDR << 1);

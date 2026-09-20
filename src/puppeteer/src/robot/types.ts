@@ -17,7 +17,13 @@ export type RobotEvent =
   | { type: "connection"; connected: boolean; message: string }
   | { type: "state"; state: State }
   | { type: "result"; result: Result }
-  | { type: "pending"; count: number };
+  | { type: "pending"; count: number }
+  | {
+      type: "wire";
+      phase: "sent" | "ack";
+      line: string;
+      latencyMs?: number;
+    };
 export interface RobotClient {
   connect(): Promise<void>;
   disconnect(): Promise<void>;

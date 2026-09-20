@@ -55,12 +55,15 @@ export class ServoSerialRobot implements RobotClient {
   private stateTimer?: ReturnType<typeof setInterval>;
   private retryTimer?: ReturnType<typeof setTimeout>;
   private handshakeTimer?: ReturnType<typeof setTimeout>;
+  private probeTimer?: ReturnType<typeof setInterval>;
   private acknowledgmentTimer?: ReturnType<typeof setTimeout>;
   private attempts = 0;
   private input = "";
   private desired = new Map<number, MotorWireTarget>();
   private desiredEyes = new Map<0 | 1, EyeWireTarget>();
   private inFlight?: WireTarget;
+  private inFlightLine = "";
+  private inFlightStartedAt = 0;
   private sent = new Map<number, number>();
   private sentEyes = new Map<0 | 1, string>();
 
@@ -163,8 +166,19 @@ export class ServoSerialRobot implements RobotClient {
     });
     const begin = () => {
       if (this.stream !== stream) return;
+      // READY is printed once from setup(), and the board does not reset when
+      // the host opens the port, so a board that booted earlier is silent.
+      // Ping it instead: "?" is rejected by every firmware build as a single
+      // "ERR motor" line, moves no servo, and cannot complete a half-received
+      // command into a valid one.
+      const probe = () => {
+        if (!this.connected && this.stream === stream && !stream.destroyed)
+          stream.write("?\n");
+      };
+      probe();
+      this.probeTimer = setInterval(probe, 1500);
       this.handshakeTimer = setTimeout(
-        () => this.fail("Servo firmware READY timeout"),
+        () => this.fail("Servo firmware handshake timeout"),
         5000,
       );
     };
@@ -187,41 +201,35 @@ export class ServoSerialRobot implements RobotClient {
 
   private receiveLine(line: string) {
     if (line === "READY") {
-      clearTimeout(this.handshakeTimer);
-      clearTimeout(this.acknowledgmentTimer);
-      this.attempts = 0;
-      this.simulator = this.createSimulator();
-      this.desired.clear();
-      this.desiredEyes.clear();
-      this.inFlight = undefined;
-      this.sent = new Map(
-        joints.map((joint) => {
-          const calibration = this.calibration[joint];
-          return [calibration.motor, toServoAngle(calibration, 0)] as const;
-        }),
-      );
-      this.sentEyes.clear();
-      this.connected = true;
-      this.startRuntime();
-      this.emit({
-        type: "connection",
-        connected: true,
-        message: "Servo firmware ready (open-loop state)",
-      });
-      this.emit({ type: "state", state: this.simulator.getState() });
+      // A boot banner means the servos really are at their homes.
+      this.establish(true, "Servo firmware ready (open-loop state)");
       return;
     }
-    if (!this.connected) return;
+    if (!this.connected) {
+      // Any reply to the handshake probe proves the firmware is listening.
+      // The servos are wherever the last session left them, so nothing is
+      // assumed about their positions.
+      if (line === "OK" || line.startsWith("ERR"))
+        this.establish(false, "Servo firmware ready (resyncing to home)");
+      return;
+    }
     if (line === "OK") {
       if (!this.inFlight) {
         this.fail("Unexpected firmware OK");
         return;
       }
       clearTimeout(this.acknowledgmentTimer);
+      this.emit({
+        type: "wire",
+        phase: "ack",
+        line: this.inFlightLine,
+        latencyMs: Date.now() - this.inFlightStartedAt,
+      });
       if (this.inFlight.kind === "motor")
         this.sent.set(this.inFlight.motor, this.inFlight.angle);
       else this.sentEyes.set(this.inFlight.eye, this.inFlight.expression);
       this.inFlight = undefined;
+      this.inFlightLine = "";
       this.pump();
       return;
     }
@@ -230,6 +238,37 @@ export class ServoSerialRobot implements RobotClient {
       return;
     }
     this.fail(`Unexpected firmware reply: ${line}`);
+  }
+
+  /**
+   * Completes the handshake. `atHome` is true only when a READY banner proved
+   * the firmware just booted; otherwise `sent` is left empty so the first tick
+   * commands every joint to an absolute home angle and the hardware is pulled
+   * into agreement with the simulator.
+   */
+  private establish(atHome: boolean, message: string) {
+    clearTimeout(this.handshakeTimer);
+    clearInterval(this.probeTimer);
+    clearTimeout(this.acknowledgmentTimer);
+    this.attempts = 0;
+    this.simulator = this.createSimulator();
+    this.desired.clear();
+    this.desiredEyes.clear();
+    this.inFlight = undefined;
+    this.inFlightLine = "";
+    this.sent = atHome
+      ? new Map(
+          joints.map((joint) => {
+            const calibration = this.calibration[joint];
+            return [calibration.motor, toServoAngle(calibration, 0)] as const;
+          }),
+        )
+      : new Map();
+    this.sentEyes.clear();
+    this.connected = true;
+    this.startRuntime();
+    this.emit({ type: "connection", connected: true, message });
+    this.emit({ type: "state", state: this.simulator.getState() });
   }
 
   private startRuntime() {
@@ -292,7 +331,16 @@ export class ServoSerialRobot implements RobotClient {
         this.desiredEyes.delete(index);
         continue;
       }
-      const expression = eye.name;
+      const expression =
+        eye.openness <= 0.125
+          ? "closed"
+          : eye.openness <= 0.375
+            ? "blink3"
+            : eye.openness <= 0.625
+              ? "blink2"
+              : eye.openness <= 0.875
+                ? "blink1"
+                : eye.name;
       if (
         this.sentEyes.get(index) === expression ||
         (this.inFlight?.kind === "eye" &&
@@ -337,6 +385,9 @@ export class ServoSerialRobot implements RobotClient {
       next.kind === "motor"
         ? `${next.motor},=,${next.angle},${next.speed}\n`
         : `eye,${next.eye},${next.expression}\n`;
+    this.inFlightLine = line.trim();
+    this.inFlightStartedAt = Date.now();
+    this.emit({ type: "wire", phase: "sent", line: this.inFlightLine });
     this.stream.write(line, (error) => {
       if (error && this.inFlight === next)
         this.fail(`Serial write failed: ${error.message}`);
@@ -383,12 +434,14 @@ export class ServoSerialRobot implements RobotClient {
 
   private stopRuntime(message: string) {
     clearTimeout(this.handshakeTimer);
+    clearInterval(this.probeTimer);
     clearTimeout(this.acknowledgmentTimer);
     clearInterval(this.tickTimer);
     clearInterval(this.stateTimer);
     this.desired.clear();
     this.desiredEyes.clear();
     this.inFlight = undefined;
+    this.inFlightLine = "";
     this.sentEyes.clear();
     this.connected = false;
     this.emit({ type: "connection", connected: false, message });

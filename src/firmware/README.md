@@ -33,7 +33,7 @@ command replies `OK`; malformed input replies `ERR ...`; startup prints
 
 `eyes.h` is the eye driver, lifted from the standalone `oled-display-uno`
 sketch so motors and eyes run from one program. Both SH1106 panels keep the
-stock address 0x3C and get a bus each: left on `Wire` (D20/D21), right on
+stock address 0x3C and get a bus each: right on `Wire` (D20/D21), left on
 `Wire2` (D18/D19, a.k.a. A4/A5). `setup()` probes both, prints
 `EYES left ...: ok  right ...: ok`, and draws the `boot` frame on each.
 

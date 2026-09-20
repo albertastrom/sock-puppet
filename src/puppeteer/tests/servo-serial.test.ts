@@ -15,7 +15,11 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-function captureLines(stream: Duplex, onLine?: (line: string) => void) {
+function captureLines(
+  stream: Duplex,
+  onLine?: (line: string) => void,
+  record: (line: string) => boolean = () => true,
+) {
   const lines: string[] = [];
   let buffered = "";
   stream.on("data", (chunk) => {
@@ -26,7 +30,7 @@ function captureLines(stream: Duplex, onLine?: (line: string) => void) {
       const line = buffered.slice(0, end).trim();
       buffered = buffered.slice(end + 1);
       if (line) {
-        lines.push(line);
+        if (record(line)) lines.push(line);
         onLine?.(line);
       }
     }
@@ -36,9 +40,16 @@ function captureLines(stream: Duplex, onLine?: (line: string) => void) {
 
 async function setup(autoAck = true) {
   const [host, firmware] = pair();
-  const lines = captureLines(firmware, () => {
-    if (autoAck) firmware.write("OK\n");
-  });
+  // These cases cover the boot path: the probe goes unanswered and the READY
+  // banner below completes the handshake. The probe is not a command, so it is
+  // kept out of the recorded wire lines.
+  const lines = captureLines(
+    firmware,
+    (line) => {
+      if (line !== "?" && autoAck) firmware.write("OK\n");
+    },
+    (line) => line !== "?",
+  );
   const robot = new ServoSerialRobot("test", 115200, () => host);
   cleanups.push(() => {
     firmware.destroy();
@@ -53,6 +64,7 @@ async function setup(autoAck = true) {
 function expressionEyes(
   left: Expression,
   right: Expression = left,
+  openness = 1,
 ): NonNullable<Command["eyes"]> {
   const eye = (side: "left" | "right", name: Expression) => ({
     mode: "expression" as const,
@@ -61,7 +73,7 @@ function expressionEyes(
     y: 0,
     size: 1,
     convergence: 0,
-    openness: 1,
+    openness,
     brightness: 1,
     side,
   });
@@ -149,6 +161,28 @@ it("retargets to the estimated pose when motion is stopped", async () => {
   );
 });
 
+it("handshakes with a board that booted before the port was opened", async () => {
+  const [host, firmware] = pair();
+  // No READY: setup() ran long ago and the board does not reset on open.
+  const lines = captureLines(firmware, (line) => {
+    firmware.write(line === "?" ? "ERR motor\n" : "OK\n");
+  });
+  const robot = new ServoSerialRobot("test", 115200, () => host);
+  cleanups.push(() => {
+    firmware.destroy();
+    return robot.disconnect();
+  });
+  await robot.connect();
+  await vi.waitFor(() => expect(robot.connected).toBe(true));
+  expect(lines[0]).toBe("?");
+  // Servo positions are unknown after a silent connect, so every joint is
+  // commanded to its absolute home rather than assumed to be there.
+  await vi.waitFor(() => {
+    for (const motor of [1, 2, 3])
+      expect(lines.some((line) => line.startsWith(`${motor},=,`))).toBe(true);
+  });
+});
+
 it("disconnects on firmware errors and resets to home on READY", async () => {
   const { robot, firmware } = await setup();
   await robot.applyCommand(command("move", 25));
@@ -181,6 +215,55 @@ it("maps left and right expressions onto firmware eye indexes", async () => {
     "eye,0,angry",
     "eye,1,love",
   ]);
+});
+
+it("projects animated eyelid openness onto firmware blink frames", async () => {
+  const { robot, lines } = await setup();
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "closing",
+    eyes: expressionEyes("neutral", "neutral", 0.3),
+  });
+  await vi.waitFor(() => {
+    expect(lines).toContain("eye,0,blink3");
+    expect(lines).toContain("eye,1,blink3");
+  });
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "open",
+    eyes: expressionEyes("neutral"),
+  });
+  await vi.waitFor(() => {
+    expect(lines).toContain("eye,0,neutral");
+    expect(lines).toContain("eye,1,neutral");
+  });
+});
+
+it("reports firmware commands and acknowledgment latency", async () => {
+  const { robot } = await setup();
+  const events: {
+    phase: "sent" | "ack";
+    line: string;
+    latencyMs?: number;
+  }[] = [];
+  robot.subscribe((event) => {
+    if (event.type === "wire") events.push(event);
+  });
+  await robot.applyCommand(command("move", 20));
+  await vi.waitFor(() =>
+    expect(events.some((event) => event.phase === "ack")).toBe(true),
+  );
+  expect(events[0]).toMatchObject({
+    phase: "sent",
+    line: "1,=,110,60",
+  });
+  expect(events[1]).toMatchObject({
+    phase: "ack",
+    line: "1,=,110,60",
+  });
+  expect(events[1].latencyMs).toBeGreaterThanOrEqual(0);
 });
 
 it("runs Creature expressions locally and drives both OLED panels", async () => {
