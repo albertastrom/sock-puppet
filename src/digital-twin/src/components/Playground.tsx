@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { gestures, type Gesture } from "@sock-puppet/robot/actions";
+import type { CreatureStatus } from "@sock-puppet/robot/creature";
+import {
+  expressionDescriptions,
+  gestureMoves,
+  idleProfiles,
+  poseMoves,
+  routineMoves,
+  sequenceDescriptions,
+} from "@sock-puppet/robot/move-catalog";
 import {
   expressions,
   sequences,
@@ -9,12 +17,20 @@ import {
 import type { Command } from "@sock-puppet/robot/protocol";
 import { Button } from "@ui/components/button";
 
+const gestureIds = (Object.keys(gestureMoves) as Array<keyof typeof gestureMoves>).filter(
+  (id) => id !== "none",
+);
+const poseIds = Object.keys(poseMoves) as (keyof typeof poseMoves)[];
+const routineIds = Object.keys(routineMoves) as (keyof typeof routineMoves)[];
+
 export function Playground({
   send,
   disabled,
+  status,
 }: {
   send: (command: Command) => void;
   disabled: boolean;
+  status?: CreatureStatus;
 }) {
   const [expression, setExpression] = useState<Expression>("neutral");
   const [gaze, setGaze] = useState({ x: 0, y: 0, size: 1, convergence: 0 });
@@ -22,18 +38,23 @@ export function Playground({
   const [jawGain, setJawGain] = useState(180);
   const command = (creature: NonNullable<Command["creature"]>) =>
     send({ version: 2, type: "command", id: crypto.randomUUID(), creature });
-  const act = (gesture: Gesture) =>
+  const play = (id: string, n = 1) =>
     command({
-      kind: "act",
-      action: { gesture, n: 1, expression },
-      ttlMs: 10000,
+      kind: "move",
+      move: { id, n, ...(id === "none" ? { expression } : {}) },
+      ttlMs: 20000,
     });
+  const progress =
+    status?.moveId && status.actionStatus === "running"
+      ? `${status.moveId}${status.movePhase != null ? ` · step ${status.movePhase + 1}` : ""} · ${Math.round(status.moveProgress * 100)}%`
+      : null;
   return (
     <fieldset disabled={disabled} className="playground min-w-0">
       <div className="flex flex-wrap items-center gap-1.5">
         <Button
           size="sm"
           type="button"
+          title={idleProfiles.listening.description}
           onClick={() =>
             command({
               kind: "behavior",
@@ -50,23 +71,38 @@ export function Playground({
           size="sm"
           variant="ghost"
           type="button"
+          title={idleProfiles.thinking.description}
+          onClick={() =>
+            command({
+              kind: "behavior",
+              behavior: "thinking",
+              idleGain,
+              jawGain,
+            })
+          }
+        >
+          Thinking
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          type="button"
           onClick={() => command({ kind: "stop", closeJaw: true })}
         >
           Pause creature
         </Button>
-        {gestures
-          .filter((g) => g !== "none")
-          .map((g) => (
-            <Button
-              key={g}
-              size="sm"
-              variant="quiet"
-              type="button"
-              onClick={() => act(g)}
-            >
-              {g}
-            </Button>
-          ))}
+        {gestureIds.map((id) => (
+          <Button
+            key={id}
+            size="sm"
+            variant="quiet"
+            type="button"
+            title={gestureMoves[id].description}
+            onClick={() => play(id)}
+          >
+            {id}
+          </Button>
+        ))}
         <Button
           size="sm"
           variant="live"
@@ -78,6 +114,33 @@ export function Playground({
           Test jaw pulse
         </Button>
       </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {poseIds.map((id) => (
+          <Button
+            key={id}
+            size="sm"
+            variant="quiet"
+            type="button"
+            title={poseMoves[id].description}
+            onClick={() => play(id)}
+          >
+            {poseMoves[id].label}
+          </Button>
+        ))}
+        {routineIds.map((id) => (
+          <Button
+            key={id}
+            size="sm"
+            variant="live"
+            type="button"
+            title={routineMoves[id].description}
+            aria-pressed={status?.moveId === id && status.actionStatus === "running"}
+            onClick={() => play(id)}
+          >
+            {routineMoves[id].label}
+          </Button>
+        ))}
+      </div>
       <div className="mt-2 flex flex-wrap items-center gap-3 text-[13px] text-mute">
         <label className="flex items-center gap-2">
           Expression{" "}
@@ -85,18 +148,23 @@ export function Playground({
             aria-label="Expression"
             className="h-9 rounded-md border-[1.5px] border-knit bg-paper px-2 text-ink"
             value={expression}
+            title={expressionDescriptions[expression]}
             onChange={(e) => {
               const name = e.target.value as Expression;
               setExpression(name);
               command({
-                kind: "act",
-                action: { gesture: "none", n: 1, expression: name },
+                kind: "move",
+                move: { id: "none", n: 1, expression: name },
                 ttlMs: 4000,
               });
             }}
           >
             {expressions.map((e) => (
-              <option key={e.id} value={e.id}>
+              <option
+                key={e.id}
+                value={e.id}
+                title={expressionDescriptions[e.id]}
+              >
                 {e.name}
               </option>
             ))}
@@ -118,10 +186,20 @@ export function Playground({
           >
             <option value="">None</option>
             {Object.keys(sequences).map((s) => (
-              <option key={s}>{s}</option>
+              <option
+                key={s}
+                title={sequenceDescriptions[s as Sequence]}
+              >
+                {s}
+              </option>
             ))}
           </select>
         </label>
+        {progress && (
+          <span className="font-mono text-[11px]" data-testid="move-progress">
+            {progress}
+          </span>
+        )}
       </div>
       <details className="mt-2 text-[12px] text-mute">
         <summary className="cursor-pointer select-none">Gaze and gain</summary>

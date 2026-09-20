@@ -157,6 +157,7 @@ export default function App() {
           <div className="anim-dock pointer-events-auto absolute inset-x-4 bottom-4 z-10 rounded-[22px] bg-paper p-3 shadow-[var(--shadow-soft)]">
             <Playground
               disabled={!local}
+              status={state.creature}
               send={(c) => {
                 simulator.applyCommand(c);
               }}
@@ -244,8 +245,11 @@ export default function App() {
           <div className="panel-content px-5 pb-8">
             {state.creature && (
               <p className="pt-3 font-mono text-[11px] text-mute">
-                {state.creature.behavior} · {state.creature.gesture} ·{" "}
+                {state.creature.behavior} · {state.creature.moveId ?? state.creature.gesture} ·{" "}
                 {state.creature.expression} · {state.creature.actionStatus}
+                {state.creature.actionStatus === "running"
+                  ? ` · ${Math.round(state.creature.moveProgress * 100)}%`
+                  : ""}
               </p>
             )}
             {tab === "controls" ? (
@@ -294,22 +298,6 @@ export default function App() {
                         onClick={() => simulator.freeze()}
                       >
                         Stop motion
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="quiet"
-                        type="button"
-                        onClick={() => pose(-20, 15, 8)}
-                      >
-                        Curious
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="quiet"
-                        type="button"
-                        onClick={() => pose(15, 8, 30)}
-                      >
-                        Hello
                       </Button>
                       <Button
                         size="sm"

@@ -9,7 +9,8 @@ test("manual controls, independent eyes, console validation, and neutral reset",
   await expect(
     page.getByRole("heading", { name: "Virtual Socky" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Hello" }).click();
+  await page.getByLabel("Jaw opening target").fill("30");
+  await page.getByLabel("Jaw opening target").press("Enter");
   await expect(page.getByTestId("jawOpen-actual")).toHaveText("30.0°");
   const target = page.getByLabel("Base rotation target");
   await target.fill("");
@@ -70,12 +71,12 @@ test("external commands lock manual controls and disconnection freezes", async (
       .getByLabel("WebSocket URL")
       .fill(`ws://127.0.0.1:${address.port}`);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Hello" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Neutral" })).toBeDisabled();
     await expect(page.getByLabel("Event log")).toContainText(
       "Accepted external",
     );
     await page.getByRole("button", { name: "Disconnect", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Hello" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Neutral" })).toBeEnabled();
     const target = Number(
       await page.getByLabel("Base rotation target").inputValue(),
     );
@@ -237,6 +238,9 @@ test("previews portrait expressions and autonomous gestures offline", async ({
   await page.screenshot({ path: "test-results/portrait-wink.png" });
   await page.getByRole("button", { name: "nod", exact: true }).click();
   await expect(page.locator(".panel-content")).toContainText("nod");
+  await page.getByRole("button", { name: "Dance", exact: true }).click();
+  await expect(page.locator(".panel-content")).toContainText("dance");
+  await expect(page.getByTestId("move-progress")).toBeVisible();
   await page
     .getByRole("button", { name: "Pause creature", exact: true })
     .click();
