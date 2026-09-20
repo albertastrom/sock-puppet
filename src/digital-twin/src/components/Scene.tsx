@@ -48,6 +48,12 @@ function useFabric() {
   return texture;
 }
 
+/** Twin meshes at +X/−X use the opposite protocol panel (mount vs. raster nose side). */
+function mountedEye(simulator: Simulator, screen: Side): Eye {
+  const panel: Side = screen === "left" ? "right" : "left";
+  return simulator.getState().eyes[panel];
+}
+
 function Screen({ side, simulator }: { side: Side; simulator: Simulator }) {
   const last = useRef<Eye | undefined>(undefined);
   const { canvas, texture } = useMemo(() => {
@@ -62,7 +68,7 @@ function Screen({ side, simulator }: { side: Side; simulator: Simulator }) {
   }, []);
   useEffect(() => () => texture.dispose(), [texture]);
   useFrame(() => {
-    const eye = simulator.getState().eyes[side];
+    const eye = mountedEye(simulator, side);
     if (eye === last.current) return;
     last.current = eye;
     paintEye(canvas, eye);
