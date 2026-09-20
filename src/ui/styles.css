@@ -1,0 +1,62 @@
+@theme {
+  --font-sans: "Outfit", system-ui, sans-serif;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --color-canvas: #faf6f3;
+  --color-paper: #ffffff;
+  --color-oat: #efe6e1;
+  --color-knit: #c2b5b0;
+  --color-ink: #2c2625;
+  --color-mute: #6b615e;
+  --color-pink: #f56b82;
+  --color-rose: #c94b5e;
+  --color-pink-soft: #fde8ec;
+  --color-glow: #7ed7f0;
+  --color-glow-soft: #e6f7fc;
+  --color-glow-ink: #2a6e80;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
+  --shadow-soft: 0 18px 40px rgba(44, 38, 37, 0.06);
+  --shadow-pill: 0 10px 32px rgba(44, 38, 37, 0.12);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-weight: 420;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-pink);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+    animation: none !important;
+  }
+}

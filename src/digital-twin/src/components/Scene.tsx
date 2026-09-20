@@ -328,8 +328,8 @@ export function Scene({
       camera={{ position: [0.64, 0.45, 0.92], fov: 36, near: 0.01, far: 30 }}
       gl={{ antialias: true }}
     >
-      <color attach="background" args={["#f5f5f5"]} />
-      <fog attach="fog" args={["#f5f5f5", 1.8, 5]} />
+      <color attach="background" args={["#FAF6F3"]} />
+      <fog attach="fog" args={["#FAF6F3", 1.8, 5]} />
       <ambientLight intensity={1.4} />
       <hemisphereLight args={["#fff9ec", "#8d9a87", 1.3]} />
       <directionalLight
@@ -368,10 +368,10 @@ export function Scene({
         args={[10, 10]}
         cellSize={0.1}
         cellThickness={0.55}
-        cellColor="#bdc4b9"
+        cellColor="#C2B5B0"
         sectionSize={0.5}
         sectionThickness={0.8}
-        sectionColor="#a5af9f"
+        sectionColor="#EFE6E1"
         fadeDistance={3}
         fadeStrength={1.5}
         infiniteGrid

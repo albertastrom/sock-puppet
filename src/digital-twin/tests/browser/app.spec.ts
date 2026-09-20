@@ -7,7 +7,7 @@ test("manual controls, independent eyes, console validation, and neutral reset",
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Digital twin" }),
+    page.getByRole("heading", { name: "Virtual Socky" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Hello" }).click();
   await expect(page.getByTestId("jawOpen-actual")).toHaveText("30.0°");
@@ -98,11 +98,18 @@ test("mobile viewport remains usable", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Digital twin" }),
+    page.getByRole("heading", { name: "Virtual Socky" }),
   ).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     390,
   );
+  const metrics = await page.evaluate(() => ({
+    scrollHeight: document.documentElement.scrollHeight,
+    clientHeight: document.documentElement.clientHeight,
+  }));
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+  await page.getByRole("button", { name: "Neutral" }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole("button", { name: "Neutral" })).toBeInViewport();
   await page.screenshot({ path: "test-results/mobile.png", fullPage: true });
 });
 

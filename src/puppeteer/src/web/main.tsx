@@ -1,28 +1,39 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { Mic, MicOff, Radio } from "lucide-react";
 import { config } from "@sock-puppet/robot/config";
 import { paintEye } from "@sock-puppet/robot/display";
 import { defaultEye, type Eye } from "@sock-puppet/robot/protocol";
 import type { State } from "@sock-puppet/robot/simulator";
 import { AudioIO } from "./audio";
+import { Badge } from "@ui/components/badge";
+import { Button } from "@ui/components/button";
+import { Input } from "@ui/components/input";
+import { Textarea } from "@ui/components/textarea";
+import { cn } from "@ui/lib/utils";
 import "./style.css";
+
 function EyePreview({ eye, name }: { eye: Eye; name: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     if (ref.current) paintEye(ref.current, eye);
   }, [eye]);
   return (
-    <figure>
+    <figure className="m-0">
       <canvas
         aria-label={`${name} eye`}
+        className="eye-preview"
         ref={ref}
         width={config.display.width}
         height={config.display.height}
       />
-      <figcaption>{name} eye · 64 × 128</figcaption>
+      <figcaption className="mt-2 font-mono text-[11px] uppercase tracking-[0.08em] text-mute">
+        {name}
+      </figcaption>
     </figure>
   );
 }
+
 function App() {
   const socket = useRef<WebSocket | null>(null),
     audio = useRef<AudioIO | null>(null);
@@ -257,170 +268,107 @@ function App() {
     setHeld(false);
   };
   return (
-    <main>
-      <aside className="live-metrics">
-        GPT Live 1 · Queue {Math.round(metrics.queuedMs)} ms{" "}
-        {metrics.underrun ? "· waiting for audio" : ""}
-        {metrics.jawFallback ? " · jaw fallback" : ""}
-        {state?.creature && (
-          <span>
-            {" "}
-            · {state.creature.behavior} · {state.creature.gesture} ·{" "}
-            {state.creature.expression} · {state.creature.actionStatus}
-          </span>
-        )}
-        {usage != null && (
-          <details>
-            <summary>Session usage</summary>
-            <pre>{JSON.stringify(usage, null, 2)}</pre>
-          </details>
-        )}
-      </aside>
-      <header>
-        <h1>Puppeteer</h1>
-        <span className={`badge ${online ? "good" : ""}`}>
-          <i />
-          {online ? "Controller online" : "Controller offline"}
-        </span>
-      </header>
-      <section className="eye-status" aria-label="Eye displays">
-        <div className="face">
-          <EyePreview name="Left" eye={state?.eyes.left ?? defaultEye()} />
-          <EyePreview name="Right" eye={state?.eyes.right ?? defaultEye()} />
+    <div className="relative flex h-dvh min-h-[640px] flex-col bg-canvas text-ink">
+      <header className="flex items-center justify-between gap-3 border-b border-oat px-6 py-3">
+        <div>
+          <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-pink">
+            Console
+          </p>
+          <h1 className="font-display text-[28px] leading-none italic">
+            Puppeteer
+          </h1>
         </div>
-      </section>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className={`badge ${online ? "good" : ""}`}>
+            <Badge tone={online ? "live" : "mute"}>
+              <i className={cn("size-1.5 rounded-full", online ? "bg-glow" : "bg-current")} />
+              {online ? "Controller online" : "Controller offline"}
+            </Badge>
+          </span>
+          <span className={`badge ${connected ? "good" : ""}`}>
+            <Badge tone={connected ? "ok" : "wait"}>
+              {connected ? "Ready" : "Waiting"}
+            </Badge>
+          </span>
+          <span className={`badge ${active ? "good" : ""}`}>
+            <Badge tone={active ? "pink" : "mute"}>{behavior}</Badge>
+          </span>
+        </div>
+      </header>
       {error && (
-        <div className="error" role="alert">
+        <div className="error mx-6 mt-3 flex items-center justify-between gap-3 rounded-md bg-[#fff0ec] px-4 py-3 text-[13px] text-[#9b2c18]" role="alert">
           <span>{error}</span>
-          <button aria-label="Dismiss error" onClick={() => setError("")}>
+          <button type="button" aria-label="Dismiss error" onClick={() => setError("")}>
             ×
           </button>
         </div>
       )}
       {!hasKey && online && (
-        <div className="notice">
+        <div className="notice mx-6 mt-3 rounded-md bg-oat px-4 py-3 text-[13px] text-mute">
           Voice unavailable: configure OPENAI_API_KEY and restart.
         </div>
       )}
-      <div className="grid">
-        <section className="card">
-          <div className="section-heading">
-            <h3>Session</h3>
-            <span className={`badge ${active ? "good" : ""}`}>{behavior}</span>
-          </div>
-          <label>
-            Microphone
-            <select
-              value={mic}
-              disabled={active || starting}
-              onChange={(e) => setMic(e.target.value)}
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] max-[750px]:grid-cols-1">
+        <section className="card conversation flex min-h-0 flex-col px-6 pb-28 pt-4 max-[750px]:pb-8">
+          <div className="section-heading mb-2 flex items-center justify-between">
+            <h3 className="font-display text-[22px] italic">Conversation</h3>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={active}
+              onClick={() => send({ type: "history.clear" })}
             >
-              <option value="">System default</option>
-              {microphones.map((d, i) => (
-                <option key={d.deviceId || i} value={d.deviceId}>
-                  {d.label || `Microphone ${i + 1}`}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="toggles">
-            <label>
-              <input
-                type="checkbox"
-                checked={muted}
-                onChange={(e) => setMuted(e.target.checked)}
-              />{" "}
-              Mute microphone
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={ptt}
-                onChange={(e) => setPtt(e.target.checked)}
-              />{" "}
-              Push to talk
-            </label>
+              Clear
+            </Button>
           </div>
-          <div className="buttons">
-            <button
-              className="primary"
-              disabled={!online || !connected || !hasKey || active || starting}
-              onClick={() => void start()}
-            >
-              {starting ? "Starting…" : "Start listening"}
-            </button>
-            <button disabled={!active && !starting} onClick={stop}>
-              Stop session
-            </button>
-          </div>
-          <div className="buttons">
-            <button
-              disabled={!active}
-              onClick={() => {
-                audio.current?.handle({ type: "audio.clear" });
-                send({ type: "interrupt" });
-              }}
-            >
-              Interrupt response
-            </button>
-            {ptt && (
-              <button
-                className={held ? "primary" : ""}
-                disabled={!active || muted}
-                onPointerDown={(e) => {
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  setHeld(true);
-                }}
-                onPointerUp={release}
-                onPointerCancel={release}
-                onKeyDown={(e) => {
-                  if (e.code === "Space" && !e.repeat) {
-                    e.preventDefault();
-                    setHeld(true);
-                  }
-                }}
-                onKeyUp={(e) => {
-                  if (e.code === "Space") {
-                    e.preventDefault();
-                    release();
-                  }
-                }}
-                onBlur={release}
-              >
-                Hold to speak
-              </button>
+          <div className="transcripts min-h-0 flex-1 overflow-auto pr-1">
+            {!transcripts.length && (
+              <p className="empty max-w-md pt-10 text-[17px] leading-relaxed text-mute">
+                Start a session when Virtual Socky is connected. Talk here. The
+                puppet answers with voice and motion.
+              </p>
+            )}
+            {transcripts.map((t, i) => (
+              <article key={i} className={t.role}>
+                <span>{t.role === "user" ? "You" : "Puppet"}</span>
+                <p>{t.text}</p>
+              </article>
+            ))}
+            {partial && (
+              <article className="partial">
+                <span>Hearing…</span>
+                <p>{partial}</p>
+              </article>
             )}
           </div>
-          <div className="metrics">
-            <div>
-              <strong>{Math.round(metrics.queuedMs)} ms</strong>
-              <span>Audio queued</span>
-            </div>
-            <div>
-              <strong>{metrics.jawFallback ? "canned" : "live RMS"}</strong>
-              <span>Speech jaw</span>
-            </div>
-            <div>
-              <strong>{pending}</strong>
-              <span>Robot commands pending</span>
-            </div>
-          </div>
-          <p className="small">
-            AI-generated voice. Audio is sent to OpenAI while listening. No
-            recordings are saved by this app.
-          </p>
         </section>
-        <section className="card">
-          <div className="section-heading">
-            <h3>Robot connection</h3>
-            <span className={`badge ${connected ? "good" : ""}`}>
-              {connected ? "Ready" : "Waiting"}
-            </span>
+        <aside className="min-h-0 overflow-y-auto border-l border-oat bg-paper px-5 pb-36 pt-4 max-[750px]:border-l-0 max-[750px]:border-t max-[750px]:pb-40">
+          <section className="eye-status" aria-label="Eye displays">
+            <div className="face flex gap-4">
+              <EyePreview name="Left" eye={state?.eyes.left ?? defaultEye()} />
+              <EyePreview name="Right" eye={state?.eyes.right ?? defaultEye()} />
+            </div>
+          </section>
+          {state?.creature && (
+            <p className="mt-3 font-mono text-[11px] leading-relaxed text-mute">
+              {state.creature.behavior} · {state.creature.gesture} ·{" "}
+              {state.creature.expression} · {state.creature.actionStatus}
+            </p>
+          )}
+          <p className="live-metrics mt-3 font-mono text-[11px] text-mute">
+            Queue {Math.round(metrics.queuedMs)} ms
+            {metrics.underrun ? " · waiting for audio" : ""}
+            {metrics.jawFallback ? " · jaw fallback" : ""}
+            {pending ? ` · ${pending} pending` : ""}
+          </p>
+          <div className="section-heading mt-5">
+            <h3 className="text-[15px] font-medium">Robot connection</h3>
           </div>
-          <p className="muted">{linkMessage}</p>
-          <label>
+          <p className="muted mt-1 text-[12px] text-mute">{linkMessage}</p>
+          <label className="mt-3 block text-[13px]">
             Control target
             <select
+              className="mt-1 h-10 w-full rounded-md border-[1.5px] border-knit bg-paper px-2"
               value={transport}
               onChange={(e) => setTransport(e.target.value)}
             >
@@ -430,17 +378,19 @@ function App() {
           </label>
           {transport === "serial" ? (
             <>
-              <label>
+              <label className="mt-3 block text-[13px]">
                 Serial port
-                <div className="inline">
-                  <input
+                <div className="inline mt-1 flex gap-2">
+                  <Input
                     aria-label="Serial port"
                     list="ports"
                     placeholder="/dev/cu.usbmodem…"
                     value={serialPath}
                     onChange={(e) => setSerialPath(e.target.value)}
                   />
-                  <button onClick={() => send({ type: "ports" })}>Scan</button>
+                  <Button size="sm" variant="ghost" onClick={() => send({ type: "ports" })}>
+                    Scan
+                  </Button>
                 </div>
                 <datalist id="ports">
                   {ports.map((p) => (
@@ -448,9 +398,9 @@ function App() {
                   ))}
                 </datalist>
               </label>
-              <label>
+              <label className="mt-3 block text-[13px]">
                 Baud rate
-                <input
+                <Input
                   type="number"
                   value={baud}
                   onChange={(e) => setBaud(Number(e.target.value))}
@@ -458,30 +408,36 @@ function App() {
               </label>
             </>
           ) : (
-            <p className="endpoint">
-              Connect the twin to <code>{robotUrl}</code>
+            <p className="endpoint mt-3 text-[13px] leading-relaxed">
+              Connect Virtual Socky to <code className="rounded bg-oat px-1">{robotUrl}</code>
             </p>
           )}
-          <button
-            disabled={!online}
-            onClick={() => {
-              setError("");
-              send({ type: "transport", transport, path: serialPath, baud });
-            }}
-          >
-            Apply connection · stop session
-          </button>
-          <button
-            className="stop-motion"
-            disabled={!online || !connected}
-            onClick={() => {
-              audio.current?.handle({ type: "audio.clear" });
-              send({ type: "motion.stop" });
-            }}
-          >
-            Stop motion
-          </button>
-          <table>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!online}
+              onClick={() => {
+                setError("");
+                send({ type: "transport", transport, path: serialPath, baud });
+              }}
+            >
+              Apply connection · stop session
+            </Button>
+            <Button
+              className="stop-motion"
+              size="sm"
+              variant="stop"
+              disabled={!online || !connected}
+              onClick={() => {
+                audio.current?.handle({ type: "audio.clear" });
+                send({ type: "motion.stop" });
+              }}
+            >
+              Stop motion
+            </Button>
+          </div>
+          <table className="motors mt-4">
             <thead>
               <tr>
                 <th>Motor</th>
@@ -501,72 +457,151 @@ function App() {
               ))}
             </tbody>
           </table>
-        </section>
-        <section className="card conversation">
-          <div className="section-heading">
-            <h3>Conversation</h3>
-            <button
+          <section className="card mt-6">
+            <div className="section-heading mb-2">
+              <h3 className="text-[15px] font-medium">Manual control</h3>
+              <span className="muted text-[12px] text-mute">Available when stopped</span>
+            </div>
+            <Textarea
+              aria-label="Robot command JSON"
+              spellCheck={false}
+              rows={8}
               disabled={active}
-              onClick={() => send({ type: "history.clear" })}
+              value={manual}
+              onChange={(e) => setManual(e.target.value)}
+            />
+            <Button
+              className="mt-2"
+              size="sm"
+              variant="ink"
+              disabled={active || !connected}
+              onClick={() => {
+                try {
+                  const command = JSON.parse(manual);
+                  command.id = `manual-${Date.now()}`;
+                  send({ type: "command", command });
+                  setError("");
+                } catch {
+                  setError("Command must be valid JSON");
+                }
+              }}
             >
-              Clear
-            </button>
-          </div>
-          <div className="transcripts">
-            {!transcripts.length && (
-              <p className="empty">No conversation yet.</p>
-            )}
-            {transcripts.map((t, i) => (
-              <article key={i} className={t.role}>
-                <span>{t.role === "user" ? "You" : "Puppet"}</span>
-                <p>{t.text}</p>
-              </article>
+              Send command
+            </Button>
+          </section>
+          <details className="card logs mt-5 text-[13px]">
+            <summary className="cursor-pointer">
+              Controller events <span className="float-right text-mute">Last 50</span>
+            </summary>
+            <pre className="mt-2 max-h-52 overflow-auto font-mono text-[12px] leading-relaxed">
+              {logs.join("\n") || "No events yet."}
+            </pre>
+          </details>
+          {usage != null && (
+            <details className="mt-3 text-[12px]">
+              <summary className="cursor-pointer">Session usage</summary>
+              <pre className="mt-2 overflow-auto">{JSON.stringify(usage, null, 2)}</pre>
+            </details>
+          )}
+        </aside>
+      </div>
+      <div className="session-pill pointer-events-none fixed inset-x-0 bottom-5 z-20 flex justify-center px-4 max-[750px]:bottom-3">
+        <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-pill bg-paper p-1.5 shadow-[var(--shadow-pill)]">
+          <label className="sr-only" htmlFor="mic-select">
+            Microphone
+          </label>
+          <select
+            id="mic-select"
+            className="h-12 max-w-40 rounded-pill border-0 bg-transparent px-3 text-[13px] text-mute"
+            value={mic}
+            disabled={active || starting}
+            onChange={(e) => setMic(e.target.value)}
+          >
+            <option value="">System default</option>
+            {microphones.map((d, i) => (
+              <option key={d.deviceId || i} value={d.deviceId}>
+                {d.label || `Microphone ${i + 1}`}
+              </option>
             ))}
-            {partial && (
-              <article className="partial">
-                <span>Hearing…</span>
-                <p>{partial}</p>
-              </article>
-            )}
-          </div>
-        </section>
-        <section className="card">
-          <div className="section-heading">
-            <h3>Manual control</h3>
-            <span className="muted">Available when stopped</span>
-          </div>
-          <textarea
-            aria-label="Robot command JSON"
-            spellCheck={false}
-            rows={10}
-            disabled={active}
-            value={manual}
-            onChange={(e) => setManual(e.target.value)}
-          />
-          <button
-            disabled={active || !connected}
+          </select>
+          <Button
+            className="primary"
+            variant="default"
+            size="pill"
+            disabled={!online || !connected || !hasKey || active || starting}
+            onClick={() => void start()}
+          >
+            {starting ? "Starting…" : "Start listening"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="pill"
+            disabled={!active && !starting}
+            onClick={stop}
+          >
+            Stop session
+          </Button>
+          <label className="flex h-12 items-center gap-2 rounded-pill px-3 text-[13px]">
+            <input
+              type="checkbox"
+              checked={muted}
+              onChange={(e) => setMuted(e.target.checked)}
+            />{" "}
+            Mute microphone
+            {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+          </label>
+          <label className="flex h-12 items-center gap-2 rounded-pill px-3 text-[13px]">
+            <input
+              type="checkbox"
+              checked={ptt}
+              onChange={(e) => setPtt(e.target.checked)}
+            />{" "}
+            Push to talk
+          </label>
+          <Button
+            variant="ghost"
+            size="pill"
+            disabled={!active}
             onClick={() => {
-              try {
-                const command = JSON.parse(manual);
-                command.id = `manual-${Date.now()}`;
-                send({ type: "command", command });
-                setError("");
-              } catch {
-                setError("Command must be valid JSON");
-              }
+              audio.current?.handle({ type: "audio.clear" });
+              send({ type: "interrupt" });
             }}
           >
-            Send command
-          </button>
-        </section>
+            Interrupt response
+          </Button>
+          {ptt && (
+            <Button
+              className={held ? "primary" : ""}
+              variant={held ? "default" : "live"}
+              size="pill"
+              disabled={!active || muted}
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId);
+                setHeld(true);
+              }}
+              onPointerUp={release}
+              onPointerCancel={release}
+              onKeyDown={(e) => {
+                if (e.code === "Space" && !e.repeat) {
+                  e.preventDefault();
+                  setHeld(true);
+                }
+              }}
+              onKeyUp={(e) => {
+                if (e.code === "Space") {
+                  e.preventDefault();
+                  release();
+                }
+              }}
+              onBlur={release}
+            >
+              <Radio className="size-4" />
+              Hold to speak
+            </Button>
+          )}
+        </div>
       </div>
-      <details className="card logs">
-        <summary>
-          Controller events <span>Last 50</span>
-        </summary>
-        <pre>{logs.join("\n") || "No events yet."}</pre>
-      </details>
-    </main>
+    </div>
   );
 }
 createRoot(document.getElementById("root")!).render(<App />);

@@ -13,12 +13,19 @@
     "format:check": "prettier --check src tests scripts *.ts *.json *.html README.md"
   },
   "dependencies": {
+    "@radix-ui/react-slot": "^1.3.3",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.3.0",
+    "@sock-puppet/robot": "*",
+    "@tailwindcss/vite": "^4.3.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.47.0",
     "react": "~19.2.0",
     "react-dom": "~19.2.0",
-    "three": "^0.180.0",
-    "@sock-puppet/robot": "*"
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3",
+    "three": "^0.180.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
