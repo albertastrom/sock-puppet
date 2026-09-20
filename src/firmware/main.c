@@ -1,8 +1,10 @@
 // Three-servo slave for the Arduino UNO Q (sketch runs on the STM32U585).
 //
-// The master sends commands of the form  <motor>,<direction>,<angle>
-//   1,+,180    motor 1, positive direction, 180 degrees
-//   2,-,30     motor 2, negative direction, 30 degrees
+// The master sends commands of the form  <motor>,<direction>,<angle>[,<speed>]
+//   1,+,180       motor 1, positive direction, 180 degrees
+//   2,-,30        motor 2, negative direction, 30 degrees
+//   3,+,90,45     motor 3, positive, 90 degrees, at 45 degrees per second
+// The speed term is optional (DEFAULT_SPEED when left off), capped at SPEED_LIMIT.
 // Commands are separated by a newline or a space, so a whole block can be
 // pasted at once:  1,-,40 2,+,30 3,+,60   (no spaces inside a command)
 // Angles are relative moves. Commands for the same motor are queued and play in
@@ -28,12 +30,10 @@ class SCurveMotor {
  public:
   static const int MAX_SMOOTH_TICKS = 64;
 
-  void begin(float home, float lo, float hi, float vmax, float amax,
-             int smoothTicks) {
+  void begin(float home, float lo, float hi, float accelTime, int smoothTicks) {
     lo_ = lo;
     hi_ = hi;
-    vmax_ = vmax;
-    amax_ = amax;
+    accelTime_ = accelTime;
     n_ = smoothTicks < 1 ? 1 : (smoothTicks > MAX_SMOOTH_TICKS ? MAX_SMOOTH_TICKS : smoothTicks);
     target_ = plan_ = out_ = home;
     vel_ = 0;
@@ -41,8 +41,13 @@ class SCurveMotor {
     for (int i = 0; i < n_; i++) hist_[i] = home;
   }
 
-  // Relative move. Accumulates on the current target, clamped to [lo, hi].
-  void moveBy(float deg) {
+  // Relative move at up to `speed` deg/s (must be > 0). Acceleration scales with
+  // speed so every move takes the same accelTime to reach full speed, which keeps
+  // the ease in/out consistent. Accumulates on the current target, clamped to
+  // [lo, hi].
+  void moveBy(float deg, float speed) {
+    vmax_ = speed;
+    amax_ = speed / accelTime_;
     target_ += deg;
     if (target_ < lo_) target_ = lo_;
     if (target_ > hi_) target_ = hi_;
@@ -97,7 +102,7 @@ class SCurveMotor {
   }
 
  private:
-  float lo_ = 0, hi_ = 180, vmax_ = 100, amax_ = 300;
+  float lo_ = 0, hi_ = 180, vmax_ = 100, amax_ = 300, accelTime_ = 0.3f;
   float target_ = 0, plan_ = 0, vel_ = 0, out_ = 0;
   float hist_[MAX_SMOOTH_TICKS];
   int n_ = 1, idx_ = 0;
@@ -117,8 +122,9 @@ static const float HOME_DEG = 90;    // Where every servo is put at power-up
 static const float MIN_DEG = 0;
 static const float MAX_DEG = 180;
 
-static const float MAX_SPEED = 120;      // deg/s
-static const float MAX_ACCEL = 400;      // deg/s^2
+static const float DEFAULT_SPEED = 120;  // deg/s, used when a command has no speed term
+static const float SPEED_LIMIT = 300;    // deg/s, fastest a command may ask for
+static const float ACCEL_TIME_S = 0.3;   // Seconds to reach full speed; longer = gentler ease in/out
 static const uint32_t SMOOTH_MS = 120;   // Longer = softer S-curve, slower to settle
 static const uint32_t TICK_US = 5000;    // Motion update rate (200 Hz)
 
@@ -140,11 +146,12 @@ LineBuffer serialLine;
 #endif
 
 // Pending relative moves for one motor (ring buffer).
-static const uint8_t QUEUE_DEPTH = 32;
+static const uint16_t QUEUE_DEPTH = 256;  // Per motor; about 1 KB each
 struct MoveQueue {
   int16_t delta[QUEUE_DEPTH];
-  uint8_t head = 0;
-  uint8_t count = 0;
+  uint16_t speed[QUEUE_DEPTH];
+  uint16_t head = 0;
+  uint16_t count = 0;
 };
 MoveQueue queues[NUM_MOTORS];
 
@@ -165,16 +172,32 @@ static const char *applyCommand(const char *p) {
     if (angle < 1000) angle = angle * 10 + (*p - '0');
     p++;
   }
+
+  // Optional 4th term: speed in degrees per second.
+  int speed = (int)DEFAULT_SPEED;
+  if (*p == ',') {
+    p++;
+    if (*p < '0' || *p > '9') return "ERR speed";
+    speed = 0;
+    while (*p >= '0' && *p <= '9') {
+      if (speed < 1000) speed = speed * 10 + (*p - '0');
+      p++;
+    }
+    if (speed < 1) return "ERR speed";
+    if (speed > (int)SPEED_LIMIT) speed = (int)SPEED_LIMIT;
+  }
   if (*p != '\0') return "ERR format";
 
   int delta = dir == '+' ? angle : -angle;
 #if QUEUE_MOVES
   MoveQueue &q = queues[motor];
   if (q.count >= QUEUE_DEPTH) return "ERR queue full";
-  q.delta[(q.head + q.count) % QUEUE_DEPTH] = (int16_t)delta;
+  uint16_t slot = (q.head + q.count) % QUEUE_DEPTH;
+  q.delta[slot] = (int16_t)delta;
+  q.speed[slot] = (uint16_t)speed;
   q.count++;
 #else
-  motors[motor].moveBy((float)delta);
+  motors[motor].moveBy((float)delta, (float)speed);
 #endif
   return NULL;
 }
@@ -213,7 +236,7 @@ void setup() {
 
   int smoothTicks = (int)(SMOOTH_MS * 1000UL / TICK_US);
   for (int i = 0; i < NUM_MOTORS; i++) {
-    motors[i].begin(HOME_DEG, MIN_DEG, MAX_DEG, MAX_SPEED, MAX_ACCEL, smoothTicks);
+    motors[i].begin(HOME_DEG, MIN_DEG, MAX_DEG, ACCEL_TIME_S, smoothTicks);
     servos[i].attach(SERVO_PINS[i]);
     lastWritten[i] = motors[i].angle();
     servos[i].write(lastWritten[i]);
@@ -252,7 +275,7 @@ void loop() {
       // A move that changes nothing (already at a limit) is skipped in the same pass.
       MoveQueue &q = queues[i];
       while (q.count > 0 && motors[i].settled()) {
-        motors[i].moveBy((float)q.delta[q.head]);
+        motors[i].moveBy((float)q.delta[q.head], (float)q.speed[q.head]);
         q.head = (q.head + 1) % QUEUE_DEPTH;
         q.count--;
       }
