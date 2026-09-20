@@ -59,7 +59,7 @@ python3 ../oled-display-uno/scripts/gen_logo_header.py
 cp ../oled-display-uno/logo.h logo.h
 ```
 
-Set `ENABLE_EYES` to 0 in `main.c` to build the servo driver on its own,
+Set `ENABLE_EYES` to 0 in `main/main.ino` to build the servo driver on its own,
 without the eye commands or the U8g2 dependency.
 
 The absolute `=` form is intended for Puppeteer's continuously changing
@@ -76,7 +76,7 @@ this hardware profile.
 
 The included `platformio.ini` targets the `uno_q` board on the `arduinoq`
 platform, and pulls in U8g2 for the eyes. `main.cpp` is only a PlatformIO
-wrapper that compiles App Lab's `main.c` sketch as C++.
+wrapper around the same `main/main.ino` sketch flashed by the Arduino IDE.
 
 The Arduino Q PlatformIO platform builds only on Linux (`linux_aarch64` or
 `linux_x86_64`) because the MCU toolchain is supplied for those hosts. On the

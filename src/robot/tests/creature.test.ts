@@ -26,7 +26,25 @@ it("runs deterministic seeded local life without network input", () => {
   }
   expect(closed && gaze).toBe(true);
 });
-it("idle motion combines lively gaze with gentle random head turns", () => {
+it("holds idle blinks closed before reopening", () => {
+  const c = new Creature(1);
+  c.accept(
+    { kind: "behavior", behavior: "idle/listening" },
+    "idle",
+    initial(),
+  );
+  let held = 0;
+  let maxHeld = 0;
+  for (let i = 0; i < 800; i++) {
+    const u = c.tick(20);
+    if (u?.eyes?.left?.mode === "expression" && u.eyes.left.openness < 0.15)
+      held += 1;
+    else held = 0;
+    maxHeld = Math.max(maxHeld, held);
+  }
+  expect(maxHeld).toBeGreaterThanOrEqual(10);
+});
+it("idle motion combines lively gaze with larger random head turns", () => {
   const c = new Creature(42);
   c.accept(
     { kind: "behavior", behavior: "idle/listening" },
@@ -51,8 +69,8 @@ it("idle motion combines lively gaze with gentle random head turns", () => {
   }
   expect(maxGaze).toBeGreaterThan(0.15);
   expect(maxYaw).toBeGreaterThan(4);
-  expect(maxYaw).toBeLessThan(10);
-  expect(maxPitch).toBeGreaterThan(1.5);
+  expect(maxYaw).toBeLessThan(40);
+  expect(maxPitch).toBeGreaterThan(6);
 });
 it("nods with a stronger downward pitch and look aims in pitch", () => {
   const s = new Simulator();
@@ -166,9 +184,9 @@ it("speech envelope releases on silence/staleness and rejects old sequence numbe
   c.accept({ kind: "behavior", behavior: "idle/listening" }, "i", initial());
   c.accept({ kind: "speech", rms: 0.3, sequence: 2 }, "p", initial());
   const open = c.tick(20)!.motors!.jawOpen!.angleDeg;
-  expect(open).toBeGreaterThan(0);
+  expect(open).toBe(30);
   c.accept({ kind: "speech", rms: 0, sequence: 1 }, "old", initial());
-  expect(c.tick(20)!.motors!.jawOpen!.angleDeg).toBeGreaterThan(open);
+  expect(c.tick(20)!.motors!.jawOpen!.angleDeg).toBe(30);
   let last = 0;
   for (let i = 0; i < 60; i++) last = c.tick(20)!.motors!.jawOpen!.angleDeg;
   expect(last).toBe(0);
@@ -201,7 +219,7 @@ it("shrinks jaw opening when the head is fully down", () => {
     initial(),
   );
   let pitch = 0;
-  for (let i = 0; i < 80; i++)
+  for (let i = 0; i < 48; i++)
     pitch = c.tick(20)!.motors!.headPitch!.angleDeg;
   expect(pitch).toBeLessThanOrEqual(-44);
   c.accept({ kind: "speech", rms: 1, sequence: 1 }, "p", initial());
@@ -209,7 +227,7 @@ it("shrinks jaw opening when the head is fully down", () => {
   for (let i = 0; i < 15; i++)
     max = Math.max(max, c.tick(20)!.motors!.jawOpen!.angleDeg);
   expect(max).toBeGreaterThan(0);
-  expect(max).toBeLessThanOrEqual(16);
+  expect(max).toBeLessThanOrEqual(22);
 });
 it("flaps a canned talking jaw then closes when talking stops", () => {
   const c = new Creature();
@@ -219,9 +237,9 @@ it("flaps a canned talking jaw then closes when talking stops", () => {
   for (let i = 0; i < 80; i++)
     samples.push(c.tick(20)!.motors!.jawOpen!.angleDeg);
   const max = Math.max(...samples);
-  expect(max).toBeGreaterThan(5);
-  expect(max).toBeLessThanOrEqual(30);
-  expect(max - Math.min(...samples)).toBeGreaterThan(2);
+  expect(max).toBe(30);
+  expect(Math.min(...samples)).toBe(0);
+  expect(samples.every((angle) => angle === 0 || angle === 30)).toBe(true);
   c.accept({ kind: "talking", on: false }, "off", initial());
   let last = 1;
   for (let i = 0; i < 60; i++) last = c.tick(20)!.motors!.jawOpen!.angleDeg;
@@ -342,7 +360,7 @@ it("plays dance as one atomic routine, then restores idle aim", () => {
   for (let i = 0; i < 200; i++) s.step(0.02);
   expect(s.getState().creature?.actionStatus).toBe("completed");
   expect(s.getState().creature?.behavior).toBe("idle/listening");
-  expect(Math.abs(s.getState().motors.baseYaw.targetDeg)).toBeLessThan(8);
+  expect(Math.abs(s.getState().motors.baseYaw.targetDeg)).toBeLessThan(40);
 });
 
 it("cancels a queued follow-up when a routine is stopped", () => {

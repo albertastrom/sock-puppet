@@ -1,8 +1,8 @@
 #pragma once
 
 // Two SH1106 OLED eyes for the Arduino UNO Q, lifted from the standalone
-// oled-display-uno sketch so main.c can drive eyes and servos from one program.
-// Include this header once (main.c does) and call eyesBegin() from setup(),
+// oled-display-uno sketch so main.ino can drive eyes and servos from one program
+// include this header once (main.ino does) and call eyesBegin() from setup(),
 // then setEye() whenever an eye should change.
 //
 // The sketch runs on the STM32U585, whose Zephyr overlay hands the Arduino core

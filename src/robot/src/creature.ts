@@ -14,6 +14,11 @@ import {
   type IdleProfile,
   type Move,
 } from "./move-catalog";
+import {
+  idleEmoteEveryMs,
+  idleEmoteTtlMs,
+  pickIdleEmote,
+} from "./idle-emotes";
 export type MotionLimits = Record<
   Joint,
   {
@@ -86,7 +91,7 @@ export class Creature {
   private restYaw = 0;
   private restPitch = 0;
   private idleGain = 1;
-  private jawGain = 180;
+  private jawGain = 300;
   private action?: RunningAction;
   private pending: PendingWork[] = [];
   private expressionUntil = 0;
@@ -96,6 +101,7 @@ export class Creature {
   private gaze = { x: 0, y: 0, size: 1, convergence: 0 };
   private gazeTarget = { x: 0, y: 0 };
   private nextIdleLook = 1200;
+  private nextIdleEmote = idleEmoteEveryMs;
   private idleLook = { yaw: 0, pitch: 0 };
   private idleLookTarget = { yaw: 0, pitch: 0 };
   private fixedGaze = false;
@@ -147,6 +153,7 @@ export class Creature {
     this.sequence = undefined;
     this.sequenceOnce = false;
     this.expressionUntil = 0;
+    this.nextIdleEmote = this.time + idleEmoteEveryMs;
   }
   accept(update: CreatureUpdate, id: string, state: State) {
     if (update.kind === "stop") {
@@ -179,8 +186,14 @@ export class Creature {
       this.jaw = state.motors.jawOpen.angleDeg;
     }
     if (update.kind === "behavior") {
+      const previous = this.status.behavior;
       this.status = { ...this.status, behavior: update.behavior };
       if (update.behavior === "stopped") this.stop();
+      if (
+        update.behavior === "idle/listening" &&
+        previous !== "idle/listening"
+      )
+        this.nextIdleEmote = this.time + idleEmoteEveryMs;
       this.idleGain = update.idleGain ?? this.idleGain;
       this.jawGain = update.jawGain ?? this.jawGain;
       if (update.gaze) {
@@ -336,6 +349,17 @@ export class Creature {
       }
       this.startUpdate(next.update, next.id, next.expiresAt - t);
     }
+    if (
+      !this.action &&
+      !this.pending.length &&
+      !this.talking &&
+      this.status.behavior === "idle/listening" &&
+      t >= this.nextIdleEmote
+    ) {
+      const move = pickIdleEmote(this.random());
+      this.startMove(move, "idle-emote", idleEmoteTtlMs(move));
+      this.nextIdleEmote = t + idleEmoteEveryMs;
+    }
     if (this.expressionUntil && t >= this.expressionUntil) {
       this.status.expression = "neutral";
       this.expressionUntil = 0;
@@ -365,8 +389,9 @@ export class Creature {
       this.status.behavior === "idle/listening" &&
       t >= this.nextIdleLook
     ) {
+      const roll = this.random();
       this.idleLookTarget = {
-        yaw: (this.random() * 2 - 1) * ambient.lookYaw,
+        yaw: roll < 0.35 ? 0 : (this.random() * 2 - 1) * ambient.lookYaw,
         pitch: (this.random() * 2 - 1) * ambient.lookPitch,
       };
       this.nextIdleLook =
@@ -394,12 +419,20 @@ export class Creature {
       }
     }
     const blink = t - this.blinkStart;
+    const closeMs = 70;
+    const holdMs = 280;
+    const openMs = 90;
+    const blinkMs = closeMs + holdMs + openMs;
     const openness =
       this.sequence || !ambient.blink
         ? 1
-        : blink < 240
-          ? Math.abs(blink - 120) / 120
-          : 1;
+        : blink < closeMs
+          ? 1 - blink / closeMs
+          : blink < closeMs + holdMs
+            ? 0
+            : blink < blinkMs
+              ? (blink - closeMs - holdMs) / openMs
+              : 1;
     const waiting = this.status.behavior === "idle/listening";
     let yaw =
         this.restYaw +
@@ -463,7 +496,7 @@ export class Creature {
       }
     }
     const smoothingTau =
-      this.action || this.status.behavior === "performing" ? 55 : 120;
+      this.action || this.status.behavior === "performing" ? 28 : 120;
     const smoothing = 1 - Math.exp(-dt / smoothingTau);
     this.pose.yaw += (yaw - this.pose.yaw) * smoothing;
     this.pose.pitch += (pitch - this.pose.pitch) * smoothing;
@@ -476,13 +509,13 @@ export class Creature {
           this.coupling.headDownSpanDeg,
         )
       : this.limits.jawOpen.max;
-    const target = this.talking
-      ? Math.min(jawCap, 8 + 10 * Math.abs(Math.sin(t / 90)))
-      : amplitude < 0.012
-        ? 0
-        : Math.min(35, jawCap, (amplitude - 0.012) * this.jawGain);
-    this.jaw +=
-      (target - this.jaw) * (1 - Math.exp(-dt / (target > this.jaw ? 25 : 75)));
+    // speech snaps to full open or closed so a 3 cmd/s serial slot is a +30/-30 chomp
+    const talkSpan = Math.min(30, jawCap);
+    const talkingOpen = this.talking && Math.sin(t / 200) >= 0;
+    const speechOpen = !this.talking && amplitude >= 0.012;
+    const openDeg = talkSpan * Math.min(1, this.jawGain / 300);
+    const target = talkingOpen || speechOpen ? openDeg : 0;
+    this.jaw = target;
     if (this.jaw > jawCap) this.jaw = jawCap;
     const motor = (joint: Joint, value: number) => ({
       angleDeg: Math.max(

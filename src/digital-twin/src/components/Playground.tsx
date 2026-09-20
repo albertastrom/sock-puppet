@@ -35,7 +35,7 @@ export function Playground({
   const [expression, setExpression] = useState<Expression>("neutral");
   const [gaze, setGaze] = useState({ x: 0, y: 0, size: 1, convergence: 0 });
   const [idleGain, setIdleGain] = useState(1);
-  const [jawGain, setJawGain] = useState(180);
+  const [jawGain, setJawGain] = useState(300);
   const command = (creature: NonNullable<Command["creature"]>) =>
     send({ version: 2, type: "command", id: crypto.randomUUID(), creature });
   const play = (id: string, n = 1) =>

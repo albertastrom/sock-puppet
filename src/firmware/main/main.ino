@@ -6,8 +6,9 @@
 //   3,=,170,45    motor 3, immediately retarget to absolute servo angle 170
 //   1,=,90,45     motor 1, immediately retarget to absolute servo angle 90
 // Homes: base 90, head 120, jaw 180 (closed). Base +deg is counterclockwise
-// from above; −deg is clockwise. Jaw may open 30° from home
-// (PWM 150–180). When the head is fully down, that opening is reduced to 15°
+// from above; -deg is clockwise. Logical look-up is PWM below 120; look-down
+// is PWM above 120. Jaw may open 30 deg from home
+// (PWM 150-180). When the head is fully down, that opening is reduced to 15
 // (PWM 165) so the mouth cannot press into the body frame.
 // The speed term is optional (DEFAULT_SPEED when left off), capped at SPEED_LIMIT.
 // Commands are separated by a newline or a space, so a whole block can be
@@ -208,26 +209,26 @@ static const long BAUD = 115200;
 #define QUEUE_MOVES 1      // 1: a motor's commands play one after another, each finishing before the next.
                            // 0: commands add up and the motor heads straight for the running total.
 
-// Absolute PWM homes and hard stops. Jaw 150–180 is the full 30° opening.
-// Looking down (head PWM at or below 75, i.e. logical −45 from home 120)
-// raises the jaw floor toward 165. Head may use the full 0–180 travel.
+// Absolute PWM homes and hard stops. Jaw 150-180 is the full 30 deg opening.
+// Looking down (head PWM at or above 165, i.e. logical -45 from home 120)
+// raises the jaw floor toward 165. Head may use the full 0-180 travel.
 static const float HOME_DEG[NUM_MOTORS] = {90, 120, 180};
 static const float MIN_DEG[NUM_MOTORS] = {0, 0, 150};
 static const float MAX_DEG[NUM_MOTORS] = {180, 180, 180};
 static const int HEAD_MOTOR = 1;
 static const int JAW_MOTOR = 2;
-static const float HEAD_DOWN_PWM = 75;         // Fully down (home 120 − 45)
-static const float HEAD_COUPLE_START_PWM = 85; // Start closing extra jaw
-static const float JAW_FLOOR_OPEN = 150;       // 30° from home
-static const float JAW_FLOOR_HEAD_DOWN = 165;  // 15° from home
+static const float HEAD_DOWN_PWM = 165;         // fully down (home 120 + 45)
+static const float HEAD_COUPLE_START_PWM = 155; // start closing extra jaw
+static const float JAW_FLOOR_OPEN = 150;        // 30 deg from home
+static const float JAW_FLOOR_HEAD_DOWN = 165;   // 15 deg from home
 
 static float jawLowForHead(float headPwm)
 {
-    if (headPwm >= HEAD_COUPLE_START_PWM)
+    if (headPwm <= HEAD_COUPLE_START_PWM)
         return JAW_FLOOR_OPEN;
-    if (headPwm <= HEAD_DOWN_PWM)
+    if (headPwm >= HEAD_DOWN_PWM)
         return JAW_FLOOR_HEAD_DOWN;
-    float t = (HEAD_COUPLE_START_PWM - headPwm) / (HEAD_COUPLE_START_PWM - HEAD_DOWN_PWM);
+    float t = (headPwm - HEAD_COUPLE_START_PWM) / (HEAD_DOWN_PWM - HEAD_COUPLE_START_PWM);
     return JAW_FLOOR_OPEN + (JAW_FLOOR_HEAD_DOWN - JAW_FLOOR_OPEN) * t;
 }
 

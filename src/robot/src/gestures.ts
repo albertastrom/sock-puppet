@@ -28,17 +28,17 @@ export function gestureOffset(
     lift = Math.sin(phase * Math.PI) ** 4;
   switch (gesture) {
     case "nod":
-      return { yaw: 0, pitch: -18 * lift };
+      return { yaw: 0, pitch: -42 * lift };
     case "shake":
-      return { yaw: 18 * wave, pitch: 0 };
+      return { yaw: 50 * wave, pitch: 0 };
     case "bow":
-      return { yaw: 0, pitch: -22 * lift };
+      return { yaw: 0, pitch: -45 * lift };
     case "perk":
-      return { yaw: 0, pitch: 16 * lift };
+      return { yaw: 0, pitch: 42 * lift };
     case "sway":
-      return { yaw: 12 * wave, pitch: 4 * lift };
+      return { yaw: 32 * wave, pitch: 16 * lift };
     case "celebrate":
-      return { yaw: 12 * wave, pitch: 14 * lift };
+      return { yaw: 40 * wave, pitch: 38 * lift };
     default:
       return { yaw: 0, pitch: 0 };
   }
