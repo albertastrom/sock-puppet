@@ -104,11 +104,16 @@ it("coalesces changed targets while an untagged firmware reply is pending", asyn
   expect(lines[1]).toBe("1,=,120,60");
 });
 
-it("limits firmware commands to 3 per second", async () => {
-  const { robot, lines } = await setup();
-  const sentAt: number[] = [];
+it("limits motor firmware commands to 3 per second", async () => {
+  const { robot } = await setup();
+  const motorAt: number[] = [];
   robot.subscribe((event) => {
-    if (event.type === "wire" && event.phase === "sent") sentAt.push(Date.now());
+    if (
+      event.type === "wire" &&
+      event.phase === "sent" &&
+      /^\d,/.test(event.line)
+    )
+      motorAt.push(Date.now());
   });
   await robot.applyCommand({
     version: 2,
@@ -127,12 +132,11 @@ it("limits firmware commands to 3 per second", async () => {
     },
   });
   await new Promise((resolve) => setTimeout(resolve, 1100));
-  expect(lines.length).toBeGreaterThan(1);
-  expect(sentAt.length).toBe(lines.length);
+  expect(motorAt.length).toBeGreaterThan(1);
   const minGap = 1000 / 3 - 40;
-  for (let i = 1; i < sentAt.length; i++)
-    expect(sentAt[i]! - sentAt[i - 1]!).toBeGreaterThanOrEqual(minGap);
-  expect(sentAt.length).toBeLessThanOrEqual(5);
+  for (let i = 1; i < motorAt.length; i++)
+    expect(motorAt[i]! - motorAt[i - 1]!).toBeGreaterThanOrEqual(minGap);
+  expect(motorAt.length).toBeLessThanOrEqual(5);
 });
 
 it("runs Creature speech locally and drives the jaw servo", async () => {
@@ -274,27 +278,27 @@ it("maps left and right expressions onto firmware eye indexes", async () => {
   ]);
 });
 
-it("projects animated eyelid openness onto firmware blink frames", async () => {
+it("sends a closed frame while eyelids are shut", async () => {
   const { robot, lines } = await setup();
   await robot.applyCommand({
     version: 2,
     type: "command",
     id: "closing",
-    eyes: expressionEyes("neutral", "neutral", 0.3),
+    eyes: expressionEyes("neutral", "neutral", 0.2),
   });
   await vi.waitFor(() => {
-    expect(lines).toContain("eye,0,blink3");
-    expect(lines).toContain("eye,1,blink3");
+    expect(lines).toContain("eye,0,closed");
+    expect(lines).toContain("eye,1,closed");
   });
   await robot.applyCommand({
     version: 2,
     type: "command",
     id: "open",
-    eyes: expressionEyes("neutral"),
+    eyes: expressionEyes("curious"),
   });
   await vi.waitFor(() => {
-    expect(lines).toContain("eye,0,neutral");
-    expect(lines).toContain("eye,1,neutral");
+    expect(lines).toContain("eye,0,curious");
+    expect(lines).toContain("eye,1,curious");
   });
 });
 
@@ -429,7 +433,7 @@ it("coalesces changed expressions while an untagged firmware reply is pending", 
   ]);
 });
 
-it("keeps motors ahead of eye draws on the shared acknowledgment pipeline", async () => {
+it("draws both named expressions before a motor on the shared pipeline", async () => {
   const { robot, firmware, lines } = await setup(false);
   await robot.applyCommand({
     version: 2,
@@ -438,12 +442,12 @@ it("keeps motors ahead of eye draws on the shared acknowledgment pipeline", asyn
     motors: { baseYaw: { angleDeg: 20, speedDegPerSec: 60 } },
     eyes: expressionEyes("wink"),
   });
-  await vi.waitFor(() => expect(lines).toEqual(["1,=,110,60"]));
+  await vi.waitFor(() => expect(lines).toEqual(["eye,0,wink"]));
   firmware.write("OK\n");
-  await vi.waitFor(() => expect(lines).toEqual(["1,=,110,60", "eye,0,wink"]));
+  await vi.waitFor(() => expect(lines).toEqual(["eye,0,wink", "eye,1,wink"]));
   firmware.write("OK\n");
   await vi.waitFor(() =>
-    expect(lines).toEqual(["1,=,110,60", "eye,0,wink", "eye,1,wink"]),
+    expect(lines).toEqual(["eye,0,wink", "eye,1,wink", "1,=,110,60"]),
   );
 });
 
@@ -502,7 +506,7 @@ describe("servo calibration", () => {
     });
     expect(defaultServoCalibration.headPitch).toMatchObject({
       centerDeg: 120,
-      sign: 1,
+      sign: -1,
     });
     expect(defaultServoCalibration.jawOpen).toMatchObject({
       centerDeg: 180,
@@ -512,8 +516,8 @@ describe("servo calibration", () => {
     });
     expect(toServoAngle(defaultServoCalibration.baseYaw, 0)).toBe(90);
     expect(toServoAngle(defaultServoCalibration.headPitch, 0)).toBe(120);
-    expect(toServoAngle(defaultServoCalibration.headPitch, 10)).toBe(130);
-    expect(toServoAngle(defaultServoCalibration.headPitch, -45)).toBe(75);
+    expect(toServoAngle(defaultServoCalibration.headPitch, 10)).toBe(110);
+    expect(toServoAngle(defaultServoCalibration.headPitch, -45)).toBe(165);
     expect(toServoAngle(defaultServoCalibration.jawOpen, 0)).toBe(180);
     expect(toServoAngle(defaultServoCalibration.jawOpen, 15)).toBe(165);
     expect(toServoAngle(defaultServoCalibration.jawOpen, 30)).toBe(150);
@@ -530,7 +534,7 @@ describe("servo calibration", () => {
         motors: { headPitch: { angleDeg: 10, speedDegPerSec: 30 } },
       }),
     ).toEqual({ version: 2, type: "ack", id: "head" });
-    await vi.waitFor(() => expect(lines).toContain("2,=,130,30"));
+    await vi.waitFor(() => expect(lines).toContain("2,=,110,30"));
     expect(
       await robot.applyCommand({
         version: 2,
@@ -581,7 +585,7 @@ describe("servo calibration", () => {
         motors: { headPitch: { angleDeg: -45, speedDegPerSec: 30 } },
       }),
     ).toEqual({ version: 2, type: "ack", id: "down" });
-    await vi.waitFor(() => expect(lines).toContain("2,=,75,30"));
+    await vi.waitFor(() => expect(lines).toContain("2,=,165,30"));
     await vi.waitFor(() =>
       expect(
         lines.some((line) => line.startsWith("3,=") && Number(line.split(",")[2]) >= 165),

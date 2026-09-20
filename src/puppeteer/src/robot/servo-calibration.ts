@@ -45,7 +45,8 @@ export const defaultServoCalibration: ServoCalibration = {
   headPitch: {
     motor: 2,
     centerDeg: servoHomes.headPitch,
-    sign: 1,
+    // logical +pitch looks up (pwm decreases from 120); -pitch looks down
+    sign: -1,
     ...config.motors.headPitch,
   },
   jawOpen: {

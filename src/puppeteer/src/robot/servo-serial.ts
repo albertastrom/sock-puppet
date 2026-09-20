@@ -45,7 +45,8 @@ type WireTarget = MotorWireTarget | EyeWireTarget;
  * Protocol-v2 facade for the firmware's small READY/OK text protocol.
  * Creature behavior and telemetry are modelled locally because the servos have
  * no position feedback and the firmware intentionally does not run Creature.
- * Named eye expressions are mirrored to the OLED panels; gaze, openness,
+ * Named eye expressions are mirrored to the OLED panels. Idle blinks send
+ * a closed frame while the lids are shut, then restore the face; gaze,
  * brightness, pixels, and symbols stay host-side.
  */
 export class ServoSerialRobot implements RobotClient {
@@ -71,7 +72,7 @@ export class ServoSerialRobot implements RobotClient {
   private inFlightStartedAt = 0;
   private sent = new Map<number, number>();
   private sentEyes = new Map<0 | 1, string>();
-  private lastWireKind?: WireTarget["kind"];
+  private lastEye: 0 | 1 = 1;
 
   constructor(
     private path: string,
@@ -265,7 +266,7 @@ export class ServoSerialRobot implements RobotClient {
     this.inFlight = undefined;
     this.inFlightLine = "";
     this.lastSentAt = 0;
-    this.lastWireKind = undefined;
+    this.lastEye = 1;
     this.sent = atHome
       ? new Map(
           joints.map((joint) => {
@@ -353,16 +354,7 @@ export class ServoSerialRobot implements RobotClient {
         this.desiredEyes.delete(index);
         continue;
       }
-      const expression =
-        eye.openness <= 0.125
-          ? "closed"
-          : eye.openness <= 0.375
-            ? "blink3"
-            : eye.openness <= 0.625
-              ? "blink2"
-              : eye.openness <= 0.875
-                ? "blink1"
-                : eye.name;
+      const expression = eye.openness <= 0.35 ? "closed" : eye.name;
       if (
         this.sentEyes.get(index) === expression ||
         (this.inFlight?.kind === "eye" &&
@@ -377,38 +369,52 @@ export class ServoSerialRobot implements RobotClient {
     this.pump();
   }
 
-  private nextTarget(): WireTarget | undefined {
+  private takeEye(): EyeWireTarget | undefined {
+    const order: (0 | 1)[] = this.lastEye === 0 ? [1, 0] : [0, 1];
+    for (const index of order) {
+      const eye = this.desiredEyes.get(index);
+      if (!eye) continue;
+      this.desiredEyes.delete(index);
+      this.lastEye = index;
+      return eye;
+    }
+  }
+
+  private takeMotor(): MotorWireTarget | undefined {
     const jaw = this.desired.get(this.calibration.jawOpen.motor);
     const motor = (jaw ?? this.desired.values().next().value) as
       | MotorWireTarget
       | undefined;
-    const eye = this.desiredEyes.values().next().value as
-      | EyeWireTarget
-      | undefined;
-    const next =
-      this.lastWireKind === "motor" ? (eye ?? motor) : (motor ?? eye);
-    if (!next) return;
-    if (next.kind === "motor") this.desired.delete(next.motor);
-    else this.desiredEyes.delete(next.eye);
-    this.lastWireKind = next.kind;
-    return next;
+    if (!motor) return;
+    this.desired.delete(motor.motor);
+    return motor;
+  }
+
+  private schedulePump(wait: number) {
+    if (this.pumpTimer) return;
+    this.pumpTimer = setTimeout(() => {
+      this.pumpTimer = undefined;
+      this.pump();
+    }, wait);
+  }
+
+  private nextTarget(): WireTarget | undefined {
+    const eye = this.takeEye();
+    if (eye) return eye;
+    const wait = WIRE_MIN_INTERVAL_MS - (Date.now() - this.lastSentAt);
+    if (wait > 0) {
+      this.schedulePump(wait);
+      return;
+    }
+    return this.takeMotor();
   }
 
   private pump() {
     if (this.inFlight || !this.connected || !this.stream) return;
-    const wait = WIRE_MIN_INTERVAL_MS - (Date.now() - this.lastSentAt);
-    if (wait > 0) {
-      if (!this.pumpTimer)
-        this.pumpTimer = setTimeout(() => {
-          this.pumpTimer = undefined;
-          this.pump();
-        }, wait);
-      return;
-    }
     const next = this.nextTarget();
     if (!next) return;
     this.inFlight = next;
-    this.lastSentAt = Date.now();
+    if (next.kind === "motor") this.lastSentAt = Date.now();
     this.acknowledgmentTimer = setTimeout(
       () => this.fail("Servo firmware acknowledgment timeout"),
       3000,
@@ -418,7 +424,7 @@ export class ServoSerialRobot implements RobotClient {
         ? `${next.motor},=,${next.angle},${next.speed}\n`
         : `eye,${next.eye},${next.expression}\n`;
     this.inFlightLine = line.trim();
-    this.inFlightStartedAt = this.lastSentAt;
+    this.inFlightStartedAt = Date.now();
     this.emit({ type: "wire", phase: "sent", line: this.inFlightLine });
     this.stream.write(line, (error) => {
       if (error && this.inFlight === next)
