@@ -18,6 +18,7 @@ const port = Number(process.env.PORT ?? 8788),
 const origins = [
   `http://localhost:${port}`,
   `http://127.0.0.1:${port}`,
+  `http://[::1]:${port}`,
   "http://localhost:5174",
   "http://127.0.0.1:5174",
 ];
@@ -65,7 +66,9 @@ const mime: Record<string, string> = {
 const server = http.createServer(async (req, res) => {
   if (
     !req.headers.host ||
-    ![`localhost:${port}`, `127.0.0.1:${port}`].includes(req.headers.host)
+    ![`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`].includes(
+      req.headers.host,
+    )
   ) {
     res.writeHead(403);
     res.end("Localhost only");
@@ -270,10 +273,24 @@ wss.on("connection", (socket) => {
   socket.on("close", () => clearInterval(pulse));
 });
 await robot.connect();
-server.listen(port, "127.0.0.1", () =>
-  console.log(
-    `Puppeteer console http://127.0.0.1:${port} · twin ws://127.0.0.1:${robotPort}`,
-  ),
+const extra: http.Server[] = [];
+await new Promise<void>((resolve, reject) => {
+  server.once("error", reject);
+  server.listen(port, "127.0.0.1", () => {
+    server.off("error", reject);
+    const v6 = http.createServer((req, res) => server.emit("request", req, res));
+    v6.on("upgrade", (req, socket, head) =>
+      server.emit("upgrade", req, socket, head),
+    );
+    v6.once("error", () => resolve());
+    v6.listen(port, "::1", () => {
+      extra.push(v6);
+      resolve();
+    });
+  });
+});
+console.log(
+  `Puppeteer console http://127.0.0.1:${port} · twin ws://127.0.0.1:${robotPort}`,
 );
 async function shutdown() {
   await session.dispose();
@@ -281,6 +298,7 @@ async function shutdown() {
   await robot.disconnect();
   wss.close();
   server.close();
+  for (const clone of extra) clone.close();
 }
 process.once("SIGINT", () => void shutdown());
 process.once("SIGTERM", () => void shutdown());

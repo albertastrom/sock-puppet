@@ -1,24 +1,47 @@
 import { WebSocket, WebSocketServer } from "ws";
 import type { Command } from "@sock-puppet/robot/protocol";
 import { BaseRobot } from "./base";
+
+const loopbackHosts = ["127.0.0.1", "::1"] as const;
+
 export class WebSocketRobot extends BaseRobot {
-  private server?: WebSocketServer;
+  private servers: WebSocketServer[] = [];
   private socket?: WebSocket;
   constructor(
     private port = 8787,
-    private origins = ["http://localhost:5173", "http://127.0.0.1:5173"],
+    private origins = [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "http://[::1]:5173",
+    ],
   ) {
     super();
   }
   async connect() {
-    if (this.server) return;
-    const server = (this.server = new WebSocketServer({
-      host: "127.0.0.1",
-      port: this.port,
-      maxPayload: 60000,
-      verifyClient: ({ origin }: { origin: string }) =>
-        !origin || this.origins.includes(origin),
-    }));
+    if (this.servers.length) return;
+    for (const host of loopbackHosts) {
+      let server: WebSocketServer | undefined;
+      try {
+        server = new WebSocketServer({
+          host,
+          port: this.port,
+          maxPayload: 60000,
+          verifyClient: ({ origin }: { origin: string }) =>
+            !origin || this.origins.includes(origin),
+        });
+        this.attach(server);
+        await new Promise<void>((resolve, reject) => {
+          server!.once("listening", resolve);
+          server!.once("error", reject);
+        });
+        this.servers.push(server);
+      } catch (error) {
+        server?.close();
+        if (host === "127.0.0.1") throw error;
+      }
+    }
+  }
+  private attach(server: WebSocketServer) {
     server.on("connection", (socket) => {
       if (this.socket) {
         socket.close(1008, "Only one robot may connect");
@@ -53,10 +76,6 @@ export class WebSocketRobot extends BaseRobot {
       });
       socket.on("error", () => socket.close());
     });
-    await new Promise<void>((resolve, reject) => {
-      server.once("listening", resolve);
-      server.once("error", reject);
-    });
   }
   protected write(command: Command) {
     if (this.socket?.readyState !== WebSocket.OPEN)
@@ -70,12 +89,18 @@ export class WebSocketRobot extends BaseRobot {
     this.closeLink();
     this.socket = undefined;
     this.lost("Robot transport stopped");
-    const server = this.server;
-    this.server = undefined;
-    if (server)
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+    const servers = this.servers;
+    this.servers = [];
+    await Promise.all(
+      servers.map(
+        (server) =>
+          new Promise<void>((resolve) => server.close(() => resolve())),
+      ),
+    );
   }
   get portNumber() {
-    return (this.server?.address() as { port: number } | undefined)?.port;
+    return (
+      this.servers[0]?.address() as { port: number } | undefined
+    )?.port;
   }
 }

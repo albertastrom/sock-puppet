@@ -10,6 +10,9 @@ import {
 import { Simulator } from "@sock-puppet/robot/simulator";
 import { Connection, type ConnectionStatus } from "./core/connection";
 
+const defaultUrl = "ws://127.0.0.1:8787";
+const savedUrlKey = "sock-puppet.twin.controller";
+
 const example = JSON.stringify(
   {
     version: 2,
@@ -29,7 +32,7 @@ export function useTwin() {
   const [simulator] = useState(() => new Simulator());
   const [state, setState] = useState(simulator.getState);
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
-  const [url, setUrl] = useState("ws://localhost:8787");
+  const [url, setUrl] = useState(defaultUrl);
   const [events, setEvents] = useState<
     { time: string; message: string; error: boolean }[]
   >([]);
@@ -82,6 +85,15 @@ export function useTwin() {
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
+    const saved = sessionStorage.getItem(savedUrlKey);
+    if (saved) {
+      setUrl(saved);
+      try {
+        connection.connect(saved);
+      } catch {
+        sessionStorage.removeItem(savedUrlKey);
+      }
+    }
     return () => {
       cancelAnimationFrame(frame);
       connection.disconnect();
@@ -128,12 +140,15 @@ export function useTwin() {
   }
   function connectOrDisconnect() {
     if (!local) {
+      sessionStorage.removeItem(savedUrlKey);
       connection.disconnect();
       return;
     }
     try {
+      sessionStorage.setItem(savedUrlKey, url);
       connection.connect(url);
     } catch (error) {
+      sessionStorage.removeItem(savedUrlKey);
       const response = errorResult(undefined, error);
       fail(response.message, response);
     }
