@@ -6,6 +6,7 @@ test("controls the actual twin through the puppeteer WebSocket and survives reco
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Puppeteer" })).toBeVisible();
   await expect(page.getByText("Controller online")).toBeVisible();
   const twin = await context.newPage();
   await twin.goto("http://127.0.0.1:15173");
@@ -85,6 +86,7 @@ test("reports microphone denial without starting a session", async ({
     };
   });
   await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Puppeteer" })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Start listening" }),
   ).toBeEnabled();
