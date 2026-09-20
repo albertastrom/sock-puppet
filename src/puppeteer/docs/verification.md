@@ -34,15 +34,21 @@ protocol. The firmware now accepts an absolute `=` command that clears one
 motor's relative queue and retargets it immediately; existing queued `+` and
 `-` commands are unchanged.
 
+The 2026-09-20 firmware eye API adds `eye,0,<name>` / `eye,1,<name>` on that
+same text protocol. Puppeteer's servo transport now mirrors Creature and
+manual `expression` states through the shared one-command/`OK` queue. Gaze,
+continuous openness, brightness, pixels, and symbols remain host-preview
+only.
+
 Automated verification after this integration:
 
-- Robot: 53 tests passed.
+- Robot: 56 tests passed.
 - Digital twin: 2 unit/integration tests passed.
-- Puppeteer: 47 tests passed, including 7 servo-profile tests for mapping,
-  coalescing, speech jaw drive, stop retargeting, reset/error handling, and
-  calibration.
-- All workspace production builds and the native protocol-v2 PTY serial smoke
-  passed. The existing Three.js bundle-size advisory remains.
+- Puppeteer: 60 tests passed, including 17 servo-profile tests for mapping,
+  coalescing, speech jaw drive, OLED expression mapping, stop retargeting,
+  reset/error handling, and calibration. Production build passed.
+- The existing Three.js bundle-size advisory remains. Native protocol-v2 PTY
+  serial smoke was not re-run for this change.
 
 PlatformIO Core 6.2.0 detects the `uno_q` board through the `arduinoq`
 platform, and the firmware now includes a matching `platformio.ini`. A local
@@ -61,13 +67,14 @@ false-interruption measurements are claimed. Before deployment:
 
 1. Flash the board and check motors 1/2/3, centers, and signs at conservative
    logical limits.
-2. Exercise idle, look, nod, shake, speech jaw, Stop motion, interrupt,
-   disconnect, and reconnect.
+2. Exercise idle, look, nod, shake, speech jaw, named OLED expressions, Stop
+   motion, interrupt, disconnect, and reconnect.
 3. Measure the extra firmware S-curve lag and tune speed/limits without assuming
    the open-loop estimated state is measured position.
 4. Test pauses, acknowledgments, overlapping speech, explicit
    interruption/recovery, and combined expression requests with the final audio
    setup.
 
-OLED eye drivers remain intentionally deferred. Physical mode retains virtual
-eye preview only and has no firmware heartbeat watchdog.
+Physical mode has no firmware heartbeat watchdog. OLED frames are static named
+bitmaps; blinks from continuous openness and twin-only gaze/pixels/symbols do
+not appear on hardware.

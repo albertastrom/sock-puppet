@@ -1,6 +1,6 @@
 import type { Duplex } from "node:stream";
 import { SerialPort } from "serialport";
-import { config, joints } from "@sock-puppet/robot/config";
+import { config, joints, sides } from "@sock-puppet/robot/config";
 import { maxJawOpenForPitch, type MotionLimits } from "@sock-puppet/robot/creature";
 import {
   capabilitiesMessage,
@@ -23,16 +23,27 @@ import {
 
 export type ServoSerialFactory = () => Duplex;
 
-type WireTarget = {
+type MotorWireTarget = {
+  kind: "motor";
   motor: number;
   angle: number;
   speed: number;
 };
 
+type EyeWireTarget = {
+  kind: "eye";
+  eye: 0 | 1;
+  expression: string;
+};
+
+type WireTarget = MotorWireTarget | EyeWireTarget;
+
 /**
  * Protocol-v2 facade for the firmware's small READY/OK text protocol.
  * Creature behavior and telemetry are modelled locally because the servos have
  * no position feedback and the firmware intentionally does not run Creature.
+ * Named eye expressions are mirrored to the OLED panels; gaze, openness,
+ * brightness, pixels, and symbols stay host-side.
  */
 export class ServoSerialRobot implements RobotClient {
   connected = false;
@@ -47,9 +58,11 @@ export class ServoSerialRobot implements RobotClient {
   private acknowledgmentTimer?: ReturnType<typeof setTimeout>;
   private attempts = 0;
   private input = "";
-  private desired = new Map<number, WireTarget>();
+  private desired = new Map<number, MotorWireTarget>();
+  private desiredEyes = new Map<0 | 1, EyeWireTarget>();
   private inFlight?: WireTarget;
   private sent = new Map<number, number>();
+  private sentEyes = new Map<0 | 1, string>();
 
   constructor(
     private path: string,
@@ -179,6 +192,7 @@ export class ServoSerialRobot implements RobotClient {
       this.attempts = 0;
       this.simulator = this.createSimulator();
       this.desired.clear();
+      this.desiredEyes.clear();
       this.inFlight = undefined;
       this.sent = new Map(
         joints.map((joint) => {
@@ -186,6 +200,7 @@ export class ServoSerialRobot implements RobotClient {
           return [calibration.motor, toServoAngle(calibration, 0)] as const;
         }),
       );
+      this.sentEyes.clear();
       this.connected = true;
       this.startRuntime();
       this.emit({
@@ -203,7 +218,9 @@ export class ServoSerialRobot implements RobotClient {
         return;
       }
       clearTimeout(this.acknowledgmentTimer);
-      this.sent.set(this.inFlight.motor, this.inFlight.angle);
+      if (this.inFlight.kind === "motor")
+        this.sent.set(this.inFlight.motor, this.inFlight.angle);
+      else this.sentEyes.set(this.inFlight.eye, this.inFlight.expression);
       this.inFlight = undefined;
       this.pump();
       return;
@@ -259,33 +276,71 @@ export class ServoSerialRobot implements RobotClient {
       );
       if (
         this.sent.get(motor) === angle ||
-        (this.inFlight?.motor === motor && this.inFlight.angle === angle)
+        (this.inFlight?.kind === "motor" &&
+          this.inFlight.motor === motor &&
+          this.inFlight.angle === angle)
       ) {
         this.desired.delete(motor);
         continue;
       }
-      this.desired.set(motor, { motor, angle, speed });
+      this.desired.set(motor, { kind: "motor", motor, angle, speed });
+    }
+    for (const side of sides) {
+      const index: 0 | 1 = side === "left" ? 0 : 1;
+      const eye = state.eyes[side];
+      if (eye.mode !== "expression") {
+        this.desiredEyes.delete(index);
+        continue;
+      }
+      const expression = eye.name;
+      if (
+        this.sentEyes.get(index) === expression ||
+        (this.inFlight?.kind === "eye" &&
+          this.inFlight.eye === index &&
+          this.inFlight.expression === expression)
+      ) {
+        this.desiredEyes.delete(index);
+        continue;
+      }
+      this.desiredEyes.set(index, { kind: "eye", eye: index, expression });
     }
     this.pump();
   }
 
+  private nextTarget(): WireTarget | undefined {
+    const motor = this.desired.values().next().value as
+      | MotorWireTarget
+      | undefined;
+    if (motor) {
+      this.desired.delete(motor.motor);
+      return motor;
+    }
+    const eye = this.desiredEyes.values().next().value as
+      | EyeWireTarget
+      | undefined;
+    if (eye) {
+      this.desiredEyes.delete(eye.eye);
+      return eye;
+    }
+  }
+
   private pump() {
     if (this.inFlight || !this.connected || !this.stream) return;
-    const next = this.desired.values().next().value as WireTarget | undefined;
+    const next = this.nextTarget();
     if (!next) return;
-    this.desired.delete(next.motor);
     this.inFlight = next;
     this.acknowledgmentTimer = setTimeout(
       () => this.fail("Servo firmware acknowledgment timeout"),
       3000,
     );
-    this.stream.write(
-      `${next.motor},=,${next.angle},${next.speed}\n`,
-      (error) => {
-        if (error && this.inFlight === next)
-          this.fail(`Serial write failed: ${error.message}`);
-      },
-    );
+    const line =
+      next.kind === "motor"
+        ? `${next.motor},=,${next.angle},${next.speed}\n`
+        : `eye,${next.eye},${next.expression}\n`;
+    this.stream.write(line, (error) => {
+      if (error && this.inFlight === next)
+        this.fail(`Serial write failed: ${error.message}`);
+    });
   }
 
   async applyCommand(command: Command): Promise<Result> {
@@ -332,7 +387,9 @@ export class ServoSerialRobot implements RobotClient {
     clearInterval(this.tickTimer);
     clearInterval(this.stateTimer);
     this.desired.clear();
+    this.desiredEyes.clear();
     this.inFlight = undefined;
+    this.sentEyes.clear();
     this.connected = false;
     this.emit({ type: "connection", connected: false, message });
   }

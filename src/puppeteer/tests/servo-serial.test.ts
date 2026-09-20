@@ -7,6 +7,8 @@ import {
   toServoAngle,
 } from "../src/robot/servo-calibration";
 import { command, pair } from "./helpers";
+import type { Expression } from "@sock-puppet/robot/expressions";
+import type { Command } from "@sock-puppet/robot/protocol";
 
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
@@ -46,6 +48,24 @@ async function setup(autoAck = true) {
   firmware.write("READY\r\n");
   await vi.waitFor(() => expect(robot.connected).toBe(true));
   return { robot, firmware, lines };
+}
+
+function expressionEyes(
+  left: Expression,
+  right: Expression = left,
+): NonNullable<Command["eyes"]> {
+  const eye = (side: "left" | "right", name: Expression) => ({
+    mode: "expression" as const,
+    name,
+    x: 0,
+    y: 0,
+    size: 1,
+    convergence: 0,
+    openness: 1,
+    brightness: 1,
+    side,
+  });
+  return { left: eye("left", left), right: eye("right", right) };
 }
 
 it("maps protocol-v2 absolute joints to firmware motors", async () => {
@@ -140,6 +160,177 @@ it("disconnects on firmware errors and resets to home on READY", async () => {
     expect(robot.getState()?.motors.baseYaw.targetDeg).toBe(0),
   );
   firmware.write("ERR direction\n");
+  await vi.waitFor(() => expect(robot.connected).toBe(false));
+});
+
+it("maps left and right expressions onto firmware eye indexes", async () => {
+  const { robot, lines } = await setup();
+  expect(
+    await robot.applyCommand({
+      version: 2,
+      type: "command",
+      id: "eyes",
+      eyes: expressionEyes("angry", "love"),
+    }),
+  ).toEqual({ version: 2, type: "ack", id: "eyes" });
+  await vi.waitFor(() => {
+    expect(lines).toContain("eye,0,angry");
+    expect(lines).toContain("eye,1,love");
+  });
+  expect(lines.filter((line) => line.startsWith("eye,"))).toEqual([
+    "eye,0,angry",
+    "eye,1,love",
+  ]);
+});
+
+it("runs Creature expressions locally and drives both OLED panels", async () => {
+  const { robot, lines } = await setup();
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "behavior",
+    creature: { kind: "behavior", behavior: "idle/listening" },
+  });
+  await vi.waitFor(() => {
+    expect(lines).toContain("eye,0,neutral");
+    expect(lines).toContain("eye,1,neutral");
+  });
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "act",
+    creature: {
+      kind: "act",
+      action: { gesture: "none", n: 1, expression: "curious" },
+      ttlMs: 10000,
+    },
+  });
+  await vi.waitFor(() => {
+    expect(lines).toContain("eye,0,curious");
+    expect(lines).toContain("eye,1,curious");
+  });
+});
+
+it("does not resend an unchanged expression", async () => {
+  const { robot, lines } = await setup();
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "first",
+    eyes: expressionEyes("happy"),
+  });
+  await vi.waitFor(() => {
+    expect(lines).toEqual(["eye,0,happy", "eye,1,happy"]);
+  });
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "again",
+    eyes: expressionEyes("happy"),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(lines).toEqual(["eye,0,happy", "eye,1,happy"]);
+});
+
+it("coalesces changed expressions while an untagged firmware reply is pending", async () => {
+  const { robot, firmware, lines } = await setup(false);
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "first",
+    eyes: expressionEyes("angry"),
+  });
+  await vi.waitFor(() => expect(lines).toEqual(["eye,0,angry"]));
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "second",
+    eyes: expressionEyes("love"),
+  });
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "latest",
+    eyes: expressionEyes("curious"),
+  });
+  expect(lines).toHaveLength(1);
+  firmware.write("OK\n");
+  await vi.waitFor(() => expect(lines).toHaveLength(2));
+  firmware.write("OK\n");
+  await vi.waitFor(() => {
+    expect(lines).toContain("eye,0,curious");
+    expect(lines).toContain("eye,1,curious");
+  });
+  expect(lines.some((line) => line.includes("love"))).toBe(false);
+  expect(lines.filter((line) => line.startsWith("eye,"))).toEqual([
+    "eye,0,angry",
+    "eye,1,curious",
+    "eye,0,curious",
+  ]);
+});
+
+it("keeps motors ahead of eye draws on the shared acknowledgment pipeline", async () => {
+  const { robot, firmware, lines } = await setup(false);
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "both",
+    motors: { baseYaw: { angleDeg: 20, speedDegPerSec: 60 } },
+    eyes: expressionEyes("wink"),
+  });
+  await vi.waitFor(() => expect(lines).toEqual(["1,=,110,60"]));
+  firmware.write("OK\n");
+  await vi.waitFor(() => expect(lines).toEqual(["1,=,110,60", "eye,0,wink"]));
+  firmware.write("OK\n");
+  await vi.waitFor(() =>
+    expect(lines).toEqual(["1,=,110,60", "eye,0,wink", "eye,1,wink"]),
+  );
+});
+
+it("leaves pixels and symbols on the host preview", async () => {
+  const { robot, lines } = await setup();
+  expect(
+    await robot.applyCommand({
+      version: 2,
+      type: "command",
+      id: "symbol",
+      eyes: {
+        left: { mode: "symbol", name: "heart", brightness: 1 },
+        right: { mode: "symbol", name: "star", brightness: 1 },
+      },
+    }),
+  ).toEqual({ version: 2, type: "ack", id: "symbol" });
+  await robot.applyCommand(command("base", 20));
+  await vi.waitFor(() => expect(lines).toContain("1,=,110,60"));
+  expect(lines.some((line) => line.startsWith("eye,"))).toBe(false);
+});
+
+it("resends expressions after READY and disconnects on firmware eye errors", async () => {
+  const { robot, firmware, lines } = await setup();
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "first",
+    eyes: expressionEyes("sad"),
+  });
+  await vi.waitFor(() => {
+    expect(lines).toContain("eye,0,sad");
+    expect(lines).toContain("eye,1,sad");
+  });
+  firmware.write("READY\n");
+  await vi.waitFor(() =>
+    expect(robot.getState()?.eyes.left.mode).toBe("parameters"),
+  );
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "again",
+    eyes: expressionEyes("sad"),
+  });
+  await vi.waitFor(() =>
+    expect(lines.filter((line) => line === "eye,0,sad")).toHaveLength(2),
+  );
+  firmware.write("ERR expression\n");
   await vi.waitFor(() => expect(robot.connected).toBe(false));
 });
 

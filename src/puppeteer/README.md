@@ -46,8 +46,9 @@ Audio playback begins immediately. Semantic cues accompany ongoing speech; tool-
 Set `ROBOT_TRANSPORT=serial`, select the board's port, and use 115200 baud. The
 servo firmware maps motor 1 to base yaw, motor 2 to head pitch, and motor 3 to
 jaw opening. Puppeteer runs the shared Creature runtime locally and sends
-absolute, immediately retargetable commands such as `1,=,120,45`; queued `+`
-and `-` firmware commands remain available for manual testing.
+absolute, immediately retargetable commands such as `1,=,120,45` and
+`eye,0,neutral`. Queued `+` and `-` firmware commands remain available for
+manual testing.
 
 The default mapping is `servo angle = center + sign × logical angle`, with
 homes of 90° (base), 120° (head), and 180° (jaw closed, sign −1). Positive
@@ -55,6 +56,10 @@ base yaw is counterclockwise from above (sign +1); negative is clockwise. The ja
 open 30° from home (PWM 150–180). When the head is fully down, available jaw
 travel shrinks to 15° (PWM 165) so the mouth cannot press into the body; the
 runtime and firmware close the jaw as needed rather than blocking the nod.
+Named Creature expressions are sent as `eye,0,<name>` (left) and
+`eye,1,<name>` (right) on the same acknowledged serial queue as the servos.
+Firmware draws static left/right bitmaps for that name; gaze, continuous
+openness, brightness, raw pixels, and symbol modes stay in the host preview.
 Override centers, directions, logical limits, and speeds with one JSON object:
 
 ```sh
@@ -76,8 +81,9 @@ Physical mode currently has deliberate parity gaps:
   integer-degree commands remove sub-degree motion.
 - Stop/disconnect holds the host's estimated pose and there is no firmware
   heartbeat watchdog. Creature behavior also stops with Puppeteer.
-- Eye state remains visible in the virtual preview but is not sent to OLED
-  hardware yet.
+- Named OLED expressions are drawn on hardware; gaze, continuous lid
+  animation, brightness, raw pixels, and symbol modes remain host-preview
+  only because the firmware API accepts static named frames.
 - Mechanical calibration can narrow ranges and clip gesture amplitudes.
 
 ## Verify
@@ -101,7 +107,7 @@ npx tsx src/puppeteer/scripts/live-smoke.ts
 npx tsx src/puppeteer/scripts/live-smoke.ts /absolute/path/test.pcm
 ```
 
-The default probe sends one second of silence. It never records the microphone or moves a connected robot. Live-room acceptance still requires your microphone/speaker placement: pauses, acknowledgments, interruption, “nod twice,” “look left,” and combined speech/expression requests. Physical acceptance additionally requires checking each motor and sign at a narrow range, then idle, look/nod/shake, speech jaw, Stop motion, interrupt, disconnect, and reconnect.
+The default probe sends one second of silence. It never records the microphone or moves a connected robot. Live-room acceptance still requires your microphone/speaker placement: pauses, acknowledgments, interruption, “nod twice,” “look left,” and combined speech/expression requests. Physical acceptance additionally requires checking each motor and sign at a narrow range, then idle, look/nod/shake, speech jaw, named OLED expressions, Stop motion, interrupt, disconnect, and reconnect.
 
 See [voice architecture](docs/voice-architecture.md) for event ownership, lifecycle, and synchronization limitations.
 
