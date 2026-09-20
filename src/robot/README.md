@@ -15,7 +15,7 @@ npm test -w @sock-puppet/robot
 | `headPitch` | −45…45° | 30°/s         | 140°/s        | 350°/s²      |
 | `jawOpen`   | 0…45°   | 60°/s         | 275°/s        | 800°/s²      |
 
-Positive yaw turns toward the puppet’s left; positive pitch looks up; positive jaw opens. These are software defaults, not measured hardware calibration. Creature behavior ticks in 20 ms steps.
+Positive yaw is counterclockwise from above (the puppet’s left); negative yaw is clockwise. Positive pitch looks up; positive jaw opens. These are software defaults, not measured hardware calibration. Creature behavior ticks in 20 ms steps.
 
 See [protocol v2](PROTOCOL.md) for wire messages, semantic actions, eye packing, watchdog requirements, and migration. Version-1 devices are incompatible.
 
