@@ -76,6 +76,44 @@ it("uses narrower device limits for commands, telemetry, idle and audio jaw", as
   expect(update?.motors?.jawOpen?.angleDeg).toBeLessThanOrEqual(20);
   expect(update?.motors?.jawOpen?.speedDegPerSec).toBe(30);
 });
+it("rejects pitch outside narrowed head calibration", () => {
+  const caps: any = structuredClone(
+    capabilitiesMessage(new Simulator().getState()),
+  );
+  caps.motors.headPitch.min = -8;
+  caps.motors.headPitch.max = 8;
+  expect(() =>
+    validateForRobot(
+      {
+        version: 2,
+        type: "command",
+        id: "high",
+        creature: {
+          kind: "act",
+          action: { gesture: "look", n: 1, pitch: 15 },
+          ttlMs: 5000,
+        },
+      },
+      caps,
+    ),
+  ).toThrow();
+  const ok = validateForRobot(
+    {
+      version: 2,
+      type: "command",
+      id: "ok",
+      creature: {
+        kind: "act",
+        action: { gesture: "look", n: 1, pitch: 6 },
+        ttlMs: 5000,
+      },
+    },
+    caps,
+  );
+  expect(
+    ok.creature?.kind === "act" ? ok.creature.action.pitch : undefined,
+  ).toBe(6);
+});
 it("rejects incompatible displays, excessive device limits and malformed telemetry", () => {
   const original = capabilitiesMessage(new Simulator().getState());
   for (const mutate of [

@@ -36,8 +36,8 @@ export const config = {
       label: "Base rotation",
     },
     headPitch: {
-      min: -30,
-      max: 30,
+      min: -45,
+      max: 45,
       speed: 30,
       maxSpeed: 60,
       acceleration: 120,

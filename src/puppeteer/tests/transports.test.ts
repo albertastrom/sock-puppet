@@ -168,6 +168,23 @@ describe.each(["websocket", "serial"])("%s robot contract", (kind) => {
     await vi.waitFor(() =>
       expect(robot.getState()?.motors.baseYaw.angleDeg).toBeGreaterThan(0),
     );
+    await vi.waitFor(() =>
+      expect(robot.getState()?.creature?.gesture).toBe("none"),
+    );
+    expect(
+      await tool({
+        delegationId: "d",
+        responseId: "r2",
+        callId: "look-up",
+        name: "puppet_act",
+        arguments: { gesture: "look", pitch: 12 },
+      }),
+    ).toMatchObject({ status: "accepted" });
+    await vi.waitFor(
+      () =>
+        expect(robot.getState()?.motors.headPitch.angleDeg).toBeGreaterThan(8),
+      { timeout: 5000 },
+    );
   });
   it("requires a fresh handshake after disconnect", async () => {
     const { robot } = await setup(kind);

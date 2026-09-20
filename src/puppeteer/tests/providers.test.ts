@@ -48,6 +48,9 @@ it("configures Live and delegated actions, streams audio without done events", a
   const config = h.socket.sent[0].session;
   expect(config.model).toBe("gpt-live-1");
   expect(config.delegation.responses.tools[0].name).toBe("puppet_act");
+  expect(
+    config.delegation.responses.tools[0].parameters.properties.pitch,
+  ).toMatchObject({ minimum: -45, maximum: 45 });
   expect(config.store).toBe(false);
   h.live.send(Buffer.alloc(4800));
   expect(h.socket.sent.at(-1)?.type).toBe("session.input_audio.append");

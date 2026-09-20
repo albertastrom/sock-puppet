@@ -20,6 +20,7 @@ export type Act = {
   gesture: Gesture;
   n: number;
   yaw?: number;
+  pitch?: number;
   expression?: Expression;
 };
 export type Behavior = "stopped" | "idle/listening" | "thinking" | "performing";
@@ -61,7 +62,7 @@ function only(value: Record<string, unknown>, keys: string[]) {
 }
 export function parseAct(raw: unknown): Act {
   const a = record(raw);
-  only(a, ["gesture", "n", "yaw", "expression"]);
+  only(a, ["gesture", "n", "yaw", "pitch", "expression"]);
   if (!gestures.includes(a.gesture as Gesture))
     throw new Error("Unknown gesture");
   const n = bounded(a.n ?? 1, 1, 3, "repetitions");
@@ -73,6 +74,13 @@ export function parseAct(raw: unknown): Act {
       config.motors.baseYaw.min,
       config.motors.baseYaw.max,
       "yaw",
+    );
+  if (a.pitch != null)
+    result.pitch = bounded(
+      a.pitch,
+      config.motors.headPitch.min,
+      config.motors.headPitch.max,
+      "pitch",
     );
   if (a.expression != null) {
     if (!expressionIds.includes(String(a.expression)))
@@ -152,13 +160,14 @@ export const actTool = {
   name: "puppet_act",
   strict: false,
   description:
-    "Perform a small expressive gesture and/or set portrait eye expression. Positive yaw looks to the puppet's left. Audio drives the jaw automatically. Use sparingly alongside conversation; do not narrate routine gestures.",
+    "Perform a small expressive gesture and/or set portrait eye expression. Positive yaw looks to the puppet's left; positive pitch looks up. Use gesture look with yaw and/or pitch to aim the head. nod/shake/bow/perk/sway/celebrate add motion on top of the current aim. Audio drives the jaw automatically. Use sparingly alongside conversation; do not narrate routine gestures.",
   parameters: {
     type: "object",
     properties: {
       gesture: { type: "string", enum: gestures },
       n: { type: "integer", minimum: 1, maximum: 3 },
       yaw: { type: "number", minimum: -90, maximum: 90 },
+      pitch: { type: "number", minimum: -45, maximum: 45 },
       expression: { type: "string", enum: expressionIds },
     },
     required: ["gesture"],

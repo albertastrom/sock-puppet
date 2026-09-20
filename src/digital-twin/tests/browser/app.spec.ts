@@ -25,7 +25,7 @@ test("manual controls, independent eyes, console validation, and neutral reset",
       version: 2,
       type: "command",
       id: "browser",
-      motors: { headPitch: { angleDeg: -30 }, jawOpen: { angleDeg: 45 } },
+      motors: { headPitch: { angleDeg: -45 }, jawOpen: { angleDeg: 45 } },
     }),
   );
   await page.getByRole("button", { name: "Send command" }).click();
@@ -34,7 +34,7 @@ test("manual controls, independent eyes, console validation, and neutral reset",
   await page.getByRole("button", { name: "Send command" }).click();
   await expect(page.locator("output")).toContainText("Invalid JSON");
   await page.getByRole("tab", { name: "Manual controls" }).click();
-  await expect(page.getByTestId("headPitch-actual")).toHaveText("-30.0°");
+  await expect(page.getByTestId("headPitch-actual")).toHaveText("-45.0°");
   await page.screenshot({
     path: "test-results/joint-extremes.png",
     fullPage: true,
@@ -111,8 +111,8 @@ test("renders the remaining joint extremes and monochrome frame orientation", as
 }) => {
   await page.goto("/");
   for (const [yaw, pitch] of [
-    [90, 30],
-    [-90, -30],
+    [90, 45],
+    [-90, -45],
   ]) {
     await page.getByRole("tab", { name: "Command console" }).click();
     await page.getByLabel("JSON command").fill(

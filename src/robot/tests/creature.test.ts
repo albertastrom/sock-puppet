@@ -26,6 +26,85 @@ it("runs deterministic seeded local life without network input", () => {
   }
   expect(closed && gaze).toBe(true);
 });
+it("idle motion is led by gaze more than head sway", () => {
+  const c = new Creature(42);
+  c.accept(
+    { kind: "behavior", behavior: "idle/listening" },
+    "idle",
+    initial(),
+  );
+  let maxYaw = 0;
+  let maxGaze = 0;
+  for (let i = 0; i < 500; i++) {
+    const u = c.tick(20);
+    if (!u?.eyes?.left || u.eyes.left.mode !== "expression") continue;
+    maxYaw = Math.max(
+      maxYaw,
+      Math.abs(u.motors!.baseYaw!.angleDeg),
+    );
+    maxGaze = Math.max(maxGaze, Math.abs(u.eyes.left.x));
+  }
+  expect(maxGaze).toBeGreaterThan(0.15);
+  expect(maxGaze).toBeGreaterThan(maxYaw / 10);
+});
+it("nods with a stronger downward pitch and look aims in pitch", () => {
+  const s = new Simulator();
+  s.applyCommand({
+    version: 2,
+    type: "command",
+    id: "nod",
+    creature: {
+      kind: "act",
+      action: { gesture: "nod", n: 1 },
+      ttlMs: 10000,
+    },
+  });
+  let minPitch = 0;
+  for (let i = 0; i < 80; i++) {
+    s.step(0.02);
+    minPitch = Math.min(
+      minPitch,
+      s.getState().motors.headPitch.angleDeg,
+    );
+  }
+  expect(minPitch).toBeLessThan(-12);
+  s.applyCommand({
+    version: 2,
+    type: "command",
+    id: "up",
+    creature: {
+      kind: "act",
+      action: { gesture: "look", n: 1, pitch: 18 },
+      ttlMs: 10000,
+    },
+  });
+  for (let i = 0; i < 80; i++) s.step(0.02);
+  expect(s.getState().motors.headPitch.angleDeg).toBeGreaterThan(12);
+});
+it("parses pitch bounds and rejects out-of-range device pitch", () => {
+  expect(parseAct({ gesture: "look", n: 1, pitch: 20 }).pitch).toBe(20);
+  expect(() => parseAct({ gesture: "look", n: 1, pitch: 50 })).toThrow();
+  const limits = structuredClone(config.motors) as unknown as Record<
+    (typeof joints)[number],
+    {
+      min: number;
+      max: number;
+      speed: number;
+      maxSpeed: number;
+      acceleration: number;
+    }
+  >;
+  limits.headPitch.min = -5;
+  limits.headPitch.max = 5;
+  const c = new Creature(1, limits);
+  expect(() =>
+    c.accept(
+      { kind: "act", action: { gesture: "look", n: 1, pitch: 12 }, ttlMs: 1000 },
+      "bad",
+      initial(),
+    ),
+  ).toThrow();
+});
 it.each(gestures)("bounds and completes %s with three repeats", (gesture) => {
   const s = new Simulator();
   expect(
@@ -139,10 +218,10 @@ it("finishes two nods before a following look and cancels queued work on stop", 
     });
   act("nod", "nod");
   act("look", "look", 35);
-  for (let i = 0; i < 175; i++) s.step(0.02);
+  for (let i = 0; i < 95; i++) s.step(0.02);
   expect(s.getState().creature?.actionId).toBe("nod");
   expect(s.getState().motors.baseYaw.targetDeg).toBe(0);
-  for (let i = 0; i < 10; i++) s.step(0.02);
+  for (let i = 0; i < 20; i++) s.step(0.02);
   expect(s.getState().creature?.actionId).toBe("look");
   act("queued", "shake");
   s.freeze();

@@ -153,14 +153,20 @@ export function validateForRobot(
 ): Command {
   const parsed = parseCommand(command);
   if (!capabilities) throw new Error("Robot has not completed handshake");
-  if (
-    parsed.creature?.kind === "act" &&
-    parsed.creature.action.yaw !== undefined
-  ) {
-    const yaw = parsed.creature.action.yaw,
-      limit = capabilities.motors.baseYaw;
-    if (yaw < limit.min || yaw > limit.max)
-      throw new Error("Yaw exceeds device range");
+  if (parsed.creature?.kind === "act") {
+    const action = parsed.creature.action;
+    if (action.yaw !== undefined) {
+      const yaw = action.yaw,
+        limit = capabilities.motors.baseYaw;
+      if (yaw < limit.min || yaw > limit.max)
+        throw new Error("Yaw exceeds device range");
+    }
+    if (action.pitch !== undefined) {
+      const pitch = action.pitch,
+        limit = capabilities.motors.headPitch;
+      if (pitch < limit.min || pitch > limit.max)
+        throw new Error("Pitch exceeds device range");
+    }
   }
   for (const joint of joints) {
     const m = parsed.motors?.[joint];

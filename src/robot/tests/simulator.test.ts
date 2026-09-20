@@ -105,7 +105,7 @@ describe("command validation and state", () => {
         command({
           motors: {
             baseYaw: { angleDeg: -90 },
-            headPitch: { angleDeg: 30 },
+            headPitch: { angleDeg: 45 },
             jawOpen: { angleDeg: 45 },
           },
         }),
