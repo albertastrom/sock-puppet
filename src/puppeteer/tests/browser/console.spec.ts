@@ -120,6 +120,106 @@ test("reports microphone denial without starting a session", async ({
   await expect(page.getByText("stopped", { exact: true })).toBeVisible();
 });
 
+test("defaults to push to talk and automatically connects USB serial", async ({
+  page,
+}) => {
+  const received: Record<string, unknown>[] = [];
+  await page.routeWebSocket("**/operator", (ws) => {
+    ws.onMessage((raw) => {
+      const message = JSON.parse(String(raw));
+      received.push(message);
+      if (message.type === "ports")
+        ws.send(
+          JSON.stringify({
+            type: "ports",
+            ports: [{ path: "/dev/cu.usbmodem1101" }],
+          }),
+        );
+    });
+    ws.send(
+      JSON.stringify({
+        type: "ready",
+        protocolVersion: OPERATOR_PROTOCOL_VERSION,
+        transport: "websocket",
+        connected: false,
+        hasApiKey: true,
+        message: "Waiting for robot",
+      }),
+    );
+    ws.send(
+      JSON.stringify({ type: "session", active: false, behavior: "stopped" }),
+    );
+  });
+  await page.goto("/");
+  await expect(page.getByLabel("Push to talk")).toBeChecked();
+  await expect(page.getByLabel("Control target")).toHaveValue("serial");
+  await expect(page.getByLabel("Serial port")).toHaveValue(
+    "/dev/cu.usbmodem1101",
+  );
+  await expect
+    .poll(() =>
+      received.some(
+        (message) =>
+          message.type === "transport" &&
+          message.transport === "serial" &&
+          message.path === "/dev/cu.usbmodem1101",
+      ),
+    )
+    .toBe(true);
+});
+
+test("shows recent serial commands as plain text", async ({ page }) => {
+  await page.routeWebSocket("**/operator", (ws) => {
+    for (const message of [
+      {
+        type: "ready",
+        protocolVersion: OPERATOR_PROTOCOL_VERSION,
+        transport: "serial",
+        connected: true,
+        hasApiKey: true,
+        message: "Serial fixture",
+      },
+      {
+        type: "action",
+        id: "tool-1",
+        status: "requested",
+        action: { gesture: "nod" },
+      },
+      {
+        type: "robot",
+        event: {
+          type: "wire",
+          phase: "sent",
+          line: "1,=,110,800",
+        },
+      },
+      {
+        type: "robot",
+        event: {
+          type: "wire",
+          phase: "sent",
+          line: "eye,0,angry",
+        },
+      },
+      {
+        type: "robot",
+        event: {
+          type: "wire",
+          phase: "marker",
+          line: "END TOOL CALL",
+        },
+      },
+    ])
+      ws.send(JSON.stringify(message));
+  });
+  await page.goto("/");
+  const panel = page.getByLabel("Recent serial commands");
+  await expect(panel).toBeVisible();
+  await expect(panel.locator("pre")).toHaveText(
+    "STARTING TOOL CALL\n1,=,110,800\neye,0,angry\nEND TOOL CALL",
+  );
+});
+
 test("plays streaming PCM through a real AudioWorklet and releases the microphone", async ({
   page,
 }) => {

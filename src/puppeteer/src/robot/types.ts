@@ -20,7 +20,7 @@ export type RobotEvent =
   | { type: "pending"; count: number }
   | {
       type: "wire";
-      phase: "sent" | "ack";
+      phase: "sent" | "ack" | "marker";
       line: string;
       latencyMs?: number;
     };

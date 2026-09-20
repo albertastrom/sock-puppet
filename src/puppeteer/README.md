@@ -20,7 +20,7 @@ Open **http://127.0.0.1:8788**. Start the digital twin separately (`npm run dev:
 | `OPENAI_BACKEND_MODEL`             | `gpt-5.6-luna`                   |
 | `OPENAI_VOICE` / `OPENAI_LANGUAGE` | `marin` / `en`                   |
 | `PORT` / `ROBOT_WS_PORT`           | `8788` / `8787`                  |
-| `ROBOT_TRANSPORT`                  | `websocket`                      |
+| `ROBOT_TRANSPORT`                  | `serial` when USB is attached    |
 | `SERIAL_PATH` / `SERIAL_BAUD`      | unset / `115200`                 |
 | `SERIAL_PROTOCOL`                  | `servo` (`v2` for the emulator)  |
 | `SERVO_CALIBRATION_JSON`           | optional joint calibration       |
@@ -43,7 +43,8 @@ Audio playback begins immediately. Semantic cues accompany ongoing speech; tool-
 
 ## Physical servos
 
-Set `ROBOT_TRANSPORT=serial`, select the board's port, and use 115200 baud. The
+Set `ROBOT_TRANSPORT=serial` or leave it unset with a board attached. Puppeteer
+scans USB on startup and from the console, then uses 115200 baud. The
 servo firmware maps motor 1 to base yaw, motor 2 to head pitch, and motor 3 to
 jaw opening. Puppeteer runs the shared Creature runtime locally and sends
 absolute, immediately retargetable commands such as `1,=,120,45` and

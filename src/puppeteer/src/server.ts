@@ -14,11 +14,16 @@ import { parseServoCalibration } from "./robot/servo-calibration";
 import type { RobotClient } from "./robot/types";
 import { OpenAILive } from "./providers/openai-live";
 import { Session, type ConsoleEvent } from "./harness/session";
+import { createSerialCommandLog } from "./serial-command-log";
 import {
   OPERATOR_PROTOCOL_VERSION,
   PLAYBACK_QUEUE_MS,
 } from "./playback";
 const root = fileURLToPath(new URL("..", import.meta.url));
+const serialCommandLogPath = path.resolve(
+  process.env.SERIAL_COMMAND_LOG ?? path.join(root, "serial-commands.log"),
+);
+const serialCommandLog = createSerialCommandLog(serialCommandLogPath);
 const port = Number(process.env.PORT ?? 8788),
   robotPort = Number(process.env.ROBOT_WS_PORT ?? 8787);
 const origins = [
@@ -28,13 +33,26 @@ const origins = [
   "http://localhost:5174",
   "http://127.0.0.1:5174",
 ];
+function usbSerialPath(ports: { path: string }[]) {
+  return ports.find((entry) =>
+    /usbmodem|usbserial|wchusb|cp210|ftdi/i.test(entry.path),
+  )?.path;
+}
+async function bootTransport() {
+  if (process.env.ROBOT_TRANSPORT === "websocket")
+    return { kind: "websocket", path: "" };
+  const path =
+    process.env.SERIAL_PATH || usbSerialPath(await listPorts()) || "";
+  if (process.env.ROBOT_TRANSPORT === "serial" || path)
+    return { kind: "serial", path };
+  return { kind: "websocket", path: "" };
+}
 let robot: RobotClient;
 let session: Session;
 let operator: WebSocket | undefined;
-let transport =
-  process.env.ROBOT_TRANSPORT === "serial" ? "serial" : "websocket";
 let connectionMessage = "Waiting for robot";
 const emit = (event: ConsoleEvent) => {
+  serialCommandLog.record(event);
   if (event.type === "robot") {
     const e = event.event as { type: string; message?: string };
     if (e.type === "connection") connectionMessage = e.message ?? "";
@@ -88,7 +106,9 @@ function createRobot(
     ...(process.env.TWIN_ORIGIN ? [process.env.TWIN_ORIGIN] : []),
   ]);
 }
-robot = createRobot(transport);
+const boot = await bootTransport();
+let transport = boot.kind;
+robot = createRobot(transport, boot.path);
 session = new Session(robot, providers, emit);
 const mime: Record<string, string> = {
   ".html": "text/html",
@@ -328,6 +348,12 @@ await new Promise<void>((resolve, reject) => {
 console.log(
   `Puppeteer console http://127.0.0.1:${port} · twin ws://127.0.0.1:${robotPort}`,
 );
+console.log(
+  transport === "serial"
+    ? `Control target serial ${boot.path || "(no USB path yet)"}`
+    : "Control target digital twin",
+);
+console.log(`Serial command log ${serialCommandLogPath}`);
 async function shutdown() {
   await session.dispose();
   operator?.terminate();
@@ -335,6 +361,7 @@ async function shutdown() {
   wss.close();
   server.close();
   for (const clone of extra) clone.close();
+  await serialCommandLog.close();
 }
 process.once("SIGINT", () => void shutdown());
 process.once("SIGTERM", () => void shutdown());

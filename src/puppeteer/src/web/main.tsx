@@ -7,6 +7,7 @@ import { defaultEye, type Eye } from "@sock-puppet/robot/protocol";
 import type { State } from "@sock-puppet/robot/simulator";
 import { AudioIO } from "./audio";
 import { appendTranscript, type TranscriptRow } from "./transcripts";
+import { SerialCommandPanel } from "./serial-command-panel";
 import { OPERATOR_PROTOCOL_VERSION } from "../playback";
 import { Badge } from "@ui/components/badge";
 import { Button } from "@ui/components/button";
@@ -38,7 +39,9 @@ function EyePreview({ eye, name }: { eye: Eye; name: string }) {
 
 function App() {
   const socket = useRef<WebSocket | null>(null),
-    audio = useRef<AudioIO | null>(null);
+    audio = useRef<AudioIO | null>(null),
+    activeToolCall = useRef<string | null>(null),
+    autoSerialAttempted = useRef(false);
   const [online, setOnline] = useState(false),
     [connected, setConnected] = useState(false),
     [active, setActive] = useState(false),
@@ -47,19 +50,19 @@ function App() {
     [behavior, setBehavior] = useState("stopped"),
     [state, setState] = useState<State>();
   const [robotUrl, setRobotUrl] = useState("ws://127.0.0.1:8787");
-  const [transport, setTransport] = useState("websocket"),
+  const [transport, setTransport] = useState("serial"),
     [serialPath, setSerialPath] = useState(""),
     [baud, setBaud] = useState(115200),
     [ports, setPorts] = useState<string[]>([]);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]),
     [mic, setMic] = useState(""),
     [muted, setMuted] = useState(false),
-    [ptt, setPtt] = useState(false),
+    [ptt, setPtt] = useState(true),
     [held, setHeld] = useState(false);
   const [error, setError] = useState(""),
     [linkMessage, setLinkMessage] = useState("Waiting for controller"),
-    [pending, setPending] = useState(0),
-    [wireStatus, setWireStatus] = useState("No firmware command sent");
+    [pending, setPending] = useState(0);
+  const [serialCommands, setSerialCommands] = useState<string[]>([]);
   const [transcripts, setTranscripts] = useState<TranscriptRow[]>([]),
     [partial, setPartial] = useState(""),
     [logs, setLogs] = useState<string[]>([]);
@@ -85,6 +88,8 @@ function App() {
     setLogs((old) =>
       [`${new Date().toLocaleTimeString()}  ${text}`, ...old].slice(0, 50),
     );
+  const appendSerialCommand = (line: string) =>
+    setSerialCommands((commands) => [...commands, line].slice(-30));
   const send = (message: unknown) => {
     if (socket.current?.readyState !== WebSocket.OPEN) return false;
     socket.current.send(JSON.stringify(message));
@@ -104,11 +109,15 @@ function App() {
       }
     }));
     const connect = () => {
+      autoSerialAttempted.current = false;
       const host = import.meta.env.DEV
         ? `${location.hostname}:8788`
         : location.host;
       const ws = (socket.current = new WebSocket(`ws://${host}/operator`));
-      ws.onopen = () => setOnline(true);
+      ws.onopen = () => {
+        setOnline(true);
+        ws.send(JSON.stringify({ type: "ports" }));
+      };
       ws.onmessage = ({ data }) => {
         const m = JSON.parse(data);
         io.handle(m);
@@ -117,7 +126,10 @@ function App() {
             setProtocolVersion(
               typeof m.protocolVersion === "number" ? m.protocolVersion : null,
             );
-            setTransport(m.transport);
+            if (m.transport === "serial") {
+              setTransport("serial");
+              autoSerialAttempted.current = true;
+            } else if (autoSerialAttempted.current) setTransport(m.transport);
             if (m.robotUrl) setRobotUrl(m.robotUrl);
             setConnected(m.connected);
             setHasKey(m.hasApiKey);
@@ -143,13 +155,13 @@ function App() {
             }
             if (e.type === "state") setState(e.state);
             if (e.type === "pending") setPending(e.count);
-            if (e.type === "wire") {
-              const status =
-                e.phase === "ack"
-                  ? `${e.line} - acknowledged in ${e.latencyMs} ms`
-                  : `${e.line} - awaiting acknowledgment`;
-              setWireStatus(status);
-              if (e.phase === "sent") log(`Firmware TX ${e.line}`);
+            if (e.type === "wire" && e.phase === "sent") {
+              appendSerialCommand(e.line);
+              log(`Firmware TX ${e.line}`);
+            }
+            if (e.type === "wire" && e.phase === "marker") {
+              appendSerialCommand(e.line);
+              activeToolCall.current = null;
             }
             if (e.type === "result")
               log(
@@ -185,6 +197,16 @@ function App() {
             setUsage(m.value);
             break;
           case "action":
+            if (m.status === "requested") {
+              activeToolCall.current = String(m.id);
+              appendSerialCommand("STARTING TOOL CALL");
+            } else if (
+              m.status === "rejected" &&
+              activeToolCall.current === String(m.id)
+            ) {
+              appendSerialCommand("END TOOL CALL");
+              activeToolCall.current = null;
+            }
             log(`${m.status}: ${String(m.move?.id ?? m.action?.gesture ?? "action")}`);
             break;
           case "transcript":
@@ -205,7 +227,25 @@ function App() {
             } else setPartial(m.text.trim());
             break;
           case "ports":
-            setPorts(m.ports.map((p: { path: string }) => p.path));
+            {
+              const paths = m.ports.map((p: { path: string }) => p.path);
+              const usb = paths.find((value: string) =>
+                /usbmodem|usbserial|wchusb|cp210|ftdi/i.test(value),
+              );
+              setPorts(paths);
+              setTransport("serial");
+              if (usb) setSerialPath(usb);
+              if (!autoSerialAttempted.current) {
+                autoSerialAttempted.current = true;
+                if (usb)
+                  send({
+                    type: "transport",
+                    transport: "serial",
+                    path: usb,
+                    baud,
+                  });
+              }
+            }
             break;
           case "manual.result":
             log(
@@ -425,9 +465,10 @@ function App() {
           <p className="muted mt-1 h-4 truncate text-[12px] leading-4 text-mute">
             {linkMessage}
           </p>
-          <label className="mt-3 block text-[13px]">
+          <label className="mt-3 block text-[13px]" htmlFor="control-target">
             Control target
             <select
+              id="control-target"
               className="mt-1 h-10 w-full rounded-md border-[1.5px] border-knit bg-paper px-2"
               value={transport}
               onChange={(e) => setTransport(e.target.value)}
@@ -518,9 +559,7 @@ function App() {
             </tbody>
           </table>
           {transport === "serial" && (
-            <p className="mt-2 break-all font-mono text-[11px] leading-4 text-mute">
-              {wireStatus}
-            </p>
+            <SerialCommandPanel commands={serialCommands} />
           )}
           <section className="card mt-6">
             <div className="section-heading mb-2">
@@ -616,8 +655,12 @@ function App() {
             Mute microphone
             {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
           </label>
-          <label className="flex h-12 items-center gap-2 rounded-pill px-3 text-[13px]">
+          <label
+            className="flex h-12 items-center gap-2 rounded-pill px-3 text-[13px]"
+            htmlFor="push-to-talk"
+          >
             <input
+              id="push-to-talk"
               type="checkbox"
               checked={ptt}
               onChange={(e) => setPtt(e.target.checked)}

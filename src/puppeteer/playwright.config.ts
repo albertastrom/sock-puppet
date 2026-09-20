@@ -25,6 +25,7 @@ export default defineConfig({
         ROBOT_WS_PORT: "18887",
         TWIN_ORIGIN: "http://127.0.0.1:15173",
         OPENAI_API_KEY: "",
+        ROBOT_TRANSPORT: "websocket",
       },
       reuseExistingServer: false,
     },

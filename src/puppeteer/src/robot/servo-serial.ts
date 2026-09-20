@@ -22,6 +22,9 @@ import {
 } from "./servo-calibration";
 
 export type ServoSerialFactory = () => Duplex;
+/** firmware command rate limit: 3 lines per second */
+export const WIRE_COMMANDS_PER_SEC = 3;
+const WIRE_MIN_INTERVAL_MS = 1000 / WIRE_COMMANDS_PER_SEC;
 
 type MotorWireTarget = {
   kind: "motor";
@@ -57,6 +60,8 @@ export class ServoSerialRobot implements RobotClient {
   private handshakeTimer?: ReturnType<typeof setTimeout>;
   private probeTimer?: ReturnType<typeof setInterval>;
   private acknowledgmentTimer?: ReturnType<typeof setTimeout>;
+  private pumpTimer?: ReturnType<typeof setTimeout>;
+  private lastSentAt = 0;
   private attempts = 0;
   private input = "";
   private desired = new Map<number, MotorWireTarget>();
@@ -66,6 +71,7 @@ export class ServoSerialRobot implements RobotClient {
   private inFlightStartedAt = 0;
   private sent = new Map<number, number>();
   private sentEyes = new Map<0 | 1, string>();
+  private lastWireKind?: WireTarget["kind"];
 
   constructor(
     private path: string,
@@ -250,12 +256,16 @@ export class ServoSerialRobot implements RobotClient {
     clearTimeout(this.handshakeTimer);
     clearInterval(this.probeTimer);
     clearTimeout(this.acknowledgmentTimer);
+    clearTimeout(this.pumpTimer);
+    this.pumpTimer = undefined;
     this.attempts = 0;
     this.simulator = this.createSimulator();
     this.desired.clear();
     this.desiredEyes.clear();
     this.inFlight = undefined;
     this.inFlightLine = "";
+    this.lastSentAt = 0;
+    this.lastWireKind = undefined;
     this.sent = atHome
       ? new Map(
           joints.map((joint) => {
@@ -275,7 +285,19 @@ export class ServoSerialRobot implements RobotClient {
     clearInterval(this.tickTimer);
     clearInterval(this.stateTimer);
     this.tickTimer = setInterval(() => {
+      const before = this.simulator.getState().creature;
       this.simulator.step(0.02);
+      const after = this.simulator.getState().creature;
+      if (
+        before?.actionStatus === "running" &&
+        (after?.actionStatus !== "running" ||
+          after.actionId !== before.actionId)
+      )
+        this.emit({
+          type: "wire",
+          phase: "marker",
+          line: "END TOOL CALL",
+        });
       this.queueTargets();
     }, 20);
     this.stateTimer = setInterval(
@@ -356,27 +378,37 @@ export class ServoSerialRobot implements RobotClient {
   }
 
   private nextTarget(): WireTarget | undefined {
-    const motor = this.desired.values().next().value as
+    const jaw = this.desired.get(this.calibration.jawOpen.motor);
+    const motor = (jaw ?? this.desired.values().next().value) as
       | MotorWireTarget
       | undefined;
-    if (motor) {
-      this.desired.delete(motor.motor);
-      return motor;
-    }
     const eye = this.desiredEyes.values().next().value as
       | EyeWireTarget
       | undefined;
-    if (eye) {
-      this.desiredEyes.delete(eye.eye);
-      return eye;
-    }
+    const next =
+      this.lastWireKind === "motor" ? (eye ?? motor) : (motor ?? eye);
+    if (!next) return;
+    if (next.kind === "motor") this.desired.delete(next.motor);
+    else this.desiredEyes.delete(next.eye);
+    this.lastWireKind = next.kind;
+    return next;
   }
 
   private pump() {
     if (this.inFlight || !this.connected || !this.stream) return;
+    const wait = WIRE_MIN_INTERVAL_MS - (Date.now() - this.lastSentAt);
+    if (wait > 0) {
+      if (!this.pumpTimer)
+        this.pumpTimer = setTimeout(() => {
+          this.pumpTimer = undefined;
+          this.pump();
+        }, wait);
+      return;
+    }
     const next = this.nextTarget();
     if (!next) return;
     this.inFlight = next;
+    this.lastSentAt = Date.now();
     this.acknowledgmentTimer = setTimeout(
       () => this.fail("Servo firmware acknowledgment timeout"),
       3000,
@@ -386,7 +418,7 @@ export class ServoSerialRobot implements RobotClient {
         ? `${next.motor},=,${next.angle},${next.speed}\n`
         : `eye,${next.eye},${next.expression}\n`;
     this.inFlightLine = line.trim();
-    this.inFlightStartedAt = Date.now();
+    this.inFlightStartedAt = this.lastSentAt;
     this.emit({ type: "wire", phase: "sent", line: this.inFlightLine });
     this.stream.write(line, (error) => {
       if (error && this.inFlight === next)
@@ -436,8 +468,11 @@ export class ServoSerialRobot implements RobotClient {
     clearTimeout(this.handshakeTimer);
     clearInterval(this.probeTimer);
     clearTimeout(this.acknowledgmentTimer);
+    clearTimeout(this.pumpTimer);
     clearInterval(this.tickTimer);
     clearInterval(this.stateTimer);
+    this.pumpTimer = undefined;
+    this.lastSentAt = 0;
     this.desired.clear();
     this.desiredEyes.clear();
     this.inFlight = undefined;

@@ -104,6 +104,37 @@ it("coalesces changed targets while an untagged firmware reply is pending", asyn
   expect(lines[1]).toBe("1,=,120,60");
 });
 
+it("limits firmware commands to 3 per second", async () => {
+  const { robot, lines } = await setup();
+  const sentAt: number[] = [];
+  robot.subscribe((event) => {
+    if (event.type === "wire" && event.phase === "sent") sentAt.push(Date.now());
+  });
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "idle",
+    creature: { kind: "behavior", behavior: "idle/listening" },
+  });
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "nod",
+    creature: {
+      kind: "act",
+      action: { gesture: "nod", n: 1 },
+      ttlMs: 10000,
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  expect(lines.length).toBeGreaterThan(1);
+  expect(sentAt.length).toBe(lines.length);
+  const minGap = 1000 / 3 - 40;
+  for (let i = 1; i < sentAt.length; i++)
+    expect(sentAt[i]! - sentAt[i - 1]!).toBeGreaterThanOrEqual(minGap);
+  expect(sentAt.length).toBeLessThanOrEqual(5);
+});
+
 it("runs Creature speech locally and drives the jaw servo", async () => {
   const { robot, lines } = await setup();
   await robot.applyCommand({
@@ -132,13 +163,39 @@ it("runs Creature speech locally and drives the jaw servo", async () => {
           );
         }),
       ).toBe(true),
-    { timeout: 1000 },
+    { timeout: 2000 },
   );
   expect(
     lines
       .filter((line) => line.startsWith("3,="))
       .every((line) => Number(line.split(",")[2]) >= 150),
   ).toBe(true);
+});
+
+it("chomps the jaw a full 30 deg while talking", async () => {
+  const { robot, lines } = await setup();
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "behavior",
+    creature: { kind: "behavior", behavior: "idle/listening" },
+  });
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "talking",
+    creature: { kind: "talking", on: true },
+  });
+  await vi.waitFor(
+    () => {
+      const pwm = lines
+        .filter((line) => line.startsWith("3,="))
+        .map((line) => Number(line.split(",")[2]));
+      expect(pwm).toContain(150);
+      expect(pwm.every((angle) => angle === 150 || angle === 180)).toBe(true);
+    },
+    { timeout: 2500 },
+  );
 });
 
 it("retargets to the estimated pose when motion is stopped", async () => {
@@ -244,7 +301,7 @@ it("projects animated eyelid openness onto firmware blink frames", async () => {
 it("reports firmware commands and acknowledgment latency", async () => {
   const { robot } = await setup();
   const events: {
-    phase: "sent" | "ack";
+    phase: "sent" | "ack" | "marker";
     line: string;
     latencyMs?: number;
   }[] = [];
@@ -302,11 +359,16 @@ it("runs Creature expressions locally and drives both OLED panels", async () => 
       ttlMs: 20000,
     },
   });
-  await vi.waitFor(() => {
-    expect(lines.some((line) => /^eye,0,(joy|happy|love|square|focus|glitch)$/.test(line))).toBe(
-      true,
-    );
-  });
+  await vi.waitFor(
+    () => {
+      expect(
+        lines.some((line) =>
+          /^eye,0,(joy|happy|love|square|focus|glitch)$/.test(line),
+        ),
+      ).toBe(true);
+    },
+    { timeout: 4000 },
+  );
 });
 
 it("does not resend an unchanged expression", async () => {
