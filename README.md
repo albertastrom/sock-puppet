@@ -1,5 +1,7 @@
 # Sock puppet
 
+![Socky in the sock](socky.png)
+
 One TypeScript monorepo. Packages live under `src/`:
 
 - **`src/robot`** — `@sock-puppet/robot`: version-2 creature actions, portrait eyes, validation, configuration, OLED renderer, and simulator.
