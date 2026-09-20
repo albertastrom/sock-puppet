@@ -6,6 +6,7 @@ import { paintEye } from "@sock-puppet/robot/display";
 import { defaultEye, type Eye } from "@sock-puppet/robot/protocol";
 import type { State } from "@sock-puppet/robot/simulator";
 import { AudioIO } from "./audio";
+import { appendTranscript, type TranscriptRow } from "./transcripts";
 import { OPERATOR_PROTOCOL_VERSION } from "../playback";
 import { Badge } from "@ui/components/badge";
 import { Button } from "@ui/components/button";
@@ -58,9 +59,7 @@ function App() {
   const [error, setError] = useState(""),
     [linkMessage, setLinkMessage] = useState("Waiting for controller"),
     [pending, setPending] = useState(0);
-  const [transcripts, setTranscripts] = useState<
-      { role: string; text: string }[]
-    >([]),
+  const [transcripts, setTranscripts] = useState<TranscriptRow[]>([]),
     [partial, setPartial] = useState(""),
     [logs, setLogs] = useState<string[]>([]);
   const [metrics, setMetrics] = useState({
@@ -157,15 +156,15 @@ function App() {
             log(m.message);
             break;
           case "transcript.delta":
-            setTranscripts((old) => {
-              const last = old.at(-1);
-              return last && last.role === m.role
-                ? [
-                    ...old.slice(0, -1),
-                    { role: m.role, text: (last.text + m.text).slice(-8000) },
-                  ]
-                : [...old, { role: m.role, text: m.text }].slice(-60);
-            });
+            if (typeof m.text !== "string" || typeof m.role !== "string") break;
+            setTranscripts((old) =>
+              appendTranscript(old, {
+                role: m.role,
+                text: m.text,
+                startMs: typeof m.startMs === "number" ? m.startMs : undefined,
+                endMs: typeof m.endMs === "number" ? m.endMs : undefined,
+              }),
+            );
             break;
           case "playback.metrics":
             setMetrics({
@@ -184,7 +183,14 @@ function App() {
             if (m.final) {
               if (m.text.trim())
                 setTranscripts((t) =>
-                  [...t, { role: m.role, text: m.text.trim() }].slice(-60),
+                  [
+                    ...t,
+                    {
+                      role: m.role,
+                      text: m.text.trim(),
+                      updatedAt: Date.now(),
+                    },
+                  ].slice(-60),
                 );
               if (m.role === "user") setPartial("");
             } else setPartial(m.text.trim());

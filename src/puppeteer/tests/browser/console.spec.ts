@@ -320,6 +320,94 @@ test("refuses to start when the operator protocol version does not match", async
   ).toBeDisabled();
 });
 
+test("keeps overlapping user and puppet transcripts on two open rows", async ({
+  page,
+}) => {
+  await page.routeWebSocket("**/operator", (ws) => {
+    for (const message of [
+      {
+        type: "transcript.delta",
+        role: "user",
+        text: "Socky, too",
+        startMs: 1000,
+        endMs: 1600,
+      },
+      {
+        type: "transcript.delta",
+        role: "assistant",
+        text: "Mm-h",
+        startMs: 1400,
+        endMs: 1700,
+      },
+      {
+        type: "transcript.delta",
+        role: "user",
+        text: " much",
+        startMs: 1600,
+        endMs: 2000,
+      },
+      {
+        type: "transcript.delta",
+        role: "assistant",
+        text: "m.",
+        startMs: 1700,
+        endMs: 1900,
+      },
+    ])
+      ws.send(JSON.stringify(message));
+  });
+  await page.goto("/");
+  await expect(page.locator(".transcripts article")).toHaveCount(2);
+  await expect(page.locator(".transcripts article.user p")).toHaveText(
+    "Socky, too much",
+  );
+  await expect(page.locator(".transcripts article.assistant p")).toHaveText(
+    "Mm-hm.",
+  );
+});
+
+test("starts a new transcript row after a same-speaker gap", async ({
+  page,
+}) => {
+  await page.routeWebSocket("**/operator", (ws) => {
+    for (const message of [
+      {
+        type: "transcript.delta",
+        role: "user",
+        text: "Show me all your eyes",
+        startMs: 0,
+        endMs: 2000,
+      },
+      {
+        type: "transcript.delta",
+        role: "assistant",
+        text: "I only have two!",
+        startMs: 2500,
+        endMs: 5000,
+      },
+      {
+        type: "transcript.delta",
+        role: "user",
+        text: "Okay",
+        startMs: 7000,
+        endMs: 7800,
+      },
+    ])
+      ws.send(JSON.stringify(message));
+  });
+  await page.goto("/");
+  await expect(page.locator(".transcripts article")).toHaveCount(3);
+  await expect(page.locator(".transcripts article.user p").nth(0)).toHaveText(
+    "Show me all your eyes",
+  );
+  await expect(page.locator(".transcripts article.assistant p")).toHaveText(
+    "I only have two!",
+  );
+  await expect(page.locator(".transcripts article.user p").nth(1)).toHaveText(
+    "Okay",
+  );
+});
+
 test("does not render blank user or assistant transcript rows", async ({
   page,
 }) => {

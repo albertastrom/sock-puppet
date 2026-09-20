@@ -145,6 +145,23 @@ it("keeps RMS jaw drive for large healthy queues and treats underrun as diagnost
     rms: 0,
   });
 });
+it("forwards timed transcript deltas without grouping them", async () => {
+  const h = await setup();
+  h.emit({
+    type: "transcript",
+    role: "user",
+    text: "Socky, too",
+    startMs: 1000,
+    endMs: 1600,
+  });
+  expect(h.events.at(-1)).toMatchObject({
+    type: "transcript.delta",
+    role: "user",
+    text: "Socky, too",
+    startMs: 1000,
+    endMs: 1600,
+  });
+});
 it("does not start after a synchronous stop while awaiting previous closure", async () => {
   const provider: LiveProvider = { connect: vi.fn() };
   const session = new Session(new FakeRobot(), provider, () => {});

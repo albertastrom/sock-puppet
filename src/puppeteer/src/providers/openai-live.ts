@@ -11,6 +11,16 @@ import type {
 } from "./types";
 
 type Event = Record<string, unknown>;
+function timing(event: Event): { startMs?: number; endMs?: number } {
+  const startMs = event.start_ms,
+    endMs = event.end_ms;
+  return {
+    ...(typeof startMs === "number" && Number.isFinite(startMs)
+      ? { startMs }
+      : {}),
+    ...(typeof endMs === "number" && Number.isFinite(endMs) ? { endMs } : {}),
+  };
+}
 export type SocketFactory = (
   url: string,
   options: { headers: Record<string, string> },
@@ -179,6 +189,7 @@ export class OpenAILive implements LiveProvider {
                     ? "user"
                     : "assistant",
                 text: event.delta,
+                ...timing(event),
               });
           } else if (
             event.type === "session.delegation.created" ||

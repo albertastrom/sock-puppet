@@ -106,6 +106,8 @@ export class Session {
         type: "transcript.delta",
         role: event.role,
         text: event.text,
+        ...(event.startMs != null ? { startMs: event.startMs } : {}),
+        ...(event.endMs != null ? { endMs: event.endMs } : {}),
       });
       return;
     }

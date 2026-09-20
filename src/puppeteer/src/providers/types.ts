@@ -1,6 +1,12 @@
 export type LiveEvent =
   | { type: "audio"; pcm: Buffer }
-  | { type: "transcript"; role: "user" | "assistant"; text: string }
+  | {
+      type: "transcript";
+      role: "user" | "assistant";
+      text: string;
+      startMs?: number;
+      endMs?: number;
+    }
   | { type: "delegation"; active: boolean }
   | { type: "usage"; value: unknown }
   | { type: "error"; message: string };

@@ -65,6 +65,36 @@ it("configures Live and delegated actions, streams audio without done events", a
   expect(h.events.at(-1)?.type).toBe("audio");
   await h.end();
 });
+it("forwards interleaved transcript fragments with session timing", async () => {
+  const h = await setup();
+  h.socket.event({
+    type: "session.input_transcript.delta",
+    delta: "Socky, too",
+    start_ms: 1000,
+    end_ms: 1600,
+  });
+  h.socket.event({
+    type: "session.output_transcript.delta",
+    delta: "Mm-h",
+    start_ms: 1400,
+    end_ms: 1700,
+  });
+  expect(h.events).toContainEqual({
+    type: "transcript",
+    role: "user",
+    text: "Socky, too",
+    startMs: 1000,
+    endMs: 1600,
+  });
+  expect(h.events).toContainEqual({
+    type: "transcript",
+    role: "assistant",
+    text: "Mm-h",
+    startMs: 1400,
+    endMs: 1700,
+  });
+  await h.end();
+});
 it("deduplicates completed function items and continues only after all results", async () => {
   const h = await setup();
   h.nested({ type: "response.created", response: { id: "r" } });
