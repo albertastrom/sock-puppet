@@ -1,4 +1,14 @@
-import type { Gesture } from "./actions";
+export const gestures = [
+  "none",
+  "nod",
+  "shake",
+  "look",
+  "bow",
+  "perk",
+  "sway",
+  "celebrate",
+] as const;
+export type Gesture = (typeof gestures)[number];
 /** Durations allow acceleration/braking with the default three-servo mechanism. */
 export const gestureDuration: Record<Gesture, number> = {
   none: 0,

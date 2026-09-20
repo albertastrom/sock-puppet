@@ -5,17 +5,20 @@ import {
   type Expression,
   type Sequence,
 } from "./expressions";
-export const gestures = [
-  "none",
-  "nod",
-  "shake",
-  "look",
-  "bow",
-  "perk",
-  "sway",
-  "celebrate",
-] as const;
-export type Gesture = (typeof gestures)[number];
+import { gestures, type Gesture } from "./gestures";
+import {
+  catalogToolDescription,
+  getMove,
+  isMoveId,
+  maxActTtlMs,
+  maxMoveRepetitions,
+  maxMoveTtlMs,
+  modelMoveIds,
+  moveTtlMs,
+  type Move,
+} from "./move-catalog";
+export { gestures, type Gesture } from "./gestures";
+export type { Move } from "./move-catalog";
 export type Act = {
   gesture: Gesture;
   n: number;
@@ -26,6 +29,7 @@ export type Act = {
 export type Behavior = "stopped" | "idle/listening" | "thinking" | "performing";
 export type CreatureUpdate =
   | { kind: "act"; action: Act; ttlMs: number }
+  | { kind: "move"; move: Move; ttlMs: number }
   | {
       kind: "behavior";
       behavior: Behavior;
@@ -66,7 +70,7 @@ export function parseAct(raw: unknown): Act {
   only(a, ["gesture", "n", "yaw", "pitch", "expression"]);
   if (!gestures.includes(a.gesture as Gesture))
     throw new Error("Unknown gesture");
-  const n = bounded(a.n ?? 1, 1, 3, "repetitions");
+  const n = bounded(a.n ?? 1, 1, maxMoveRepetitions, "repetitions");
   if (!Number.isInteger(n)) throw new Error("Repetitions must be integer");
   const result: Act = { gesture: a.gesture as Gesture, n };
   if (a.yaw != null)
@@ -90,6 +94,56 @@ export function parseAct(raw: unknown): Act {
   }
   return result;
 }
+export function parseMove(raw: unknown): Move {
+  const a = record(raw);
+  only(a, ["id", "move", "n", "yaw", "pitch", "expression"]);
+  const rawId = a.id ?? a.move;
+  const id = String(
+    rawId != null && String(rawId) !== ""
+      ? rawId
+      : a.yaw != null || a.pitch != null
+        ? "look"
+        : "none",
+  );
+  if (!isMoveId(id)) throw new Error("Unknown move");
+  if (a.id != null && a.move != null && String(a.id) !== String(a.move))
+    throw new Error("Move id mismatch");
+  const entry = getMove(id);
+  const requested = bounded(a.n ?? 1, 1, maxMoveRepetitions, "repetitions");
+  if (!Number.isInteger(requested)) throw new Error("Repetitions must be integer");
+  const result: Move = { id, n: entry.repeatable ? requested : 1 };
+  if (a.yaw != null)
+    result.yaw = bounded(
+      a.yaw,
+      config.motors.baseYaw.min,
+      config.motors.baseYaw.max,
+      "yaw",
+    );
+  if (a.pitch != null)
+    result.pitch = bounded(
+      a.pitch,
+      config.motors.headPitch.min,
+      config.motors.headPitch.max,
+      "pitch",
+    );
+  if (a.expression != null) {
+    if (!expressionIds.includes(String(a.expression)))
+      throw new Error("Unknown expression");
+    result.expression = a.expression as Expression;
+  }
+  return result;
+}
+export function parsePuppetAct(raw: unknown): Extract<
+  CreatureUpdate,
+  { kind: "act" | "move" }
+> {
+  const a = record(raw);
+  if (a.gesture != null) {
+    return { kind: "act", action: parseAct(a), ttlMs: maxActTtlMs };
+  }
+  const move = parseMove(a);
+  return { kind: "move", move, ttlMs: moveTtlMs(move) };
+}
 export function parseCreature(raw: unknown): CreatureUpdate {
   const a = record(raw);
   switch (a.kind) {
@@ -98,7 +152,14 @@ export function parseCreature(raw: unknown): CreatureUpdate {
       return {
         kind: "act",
         action: parseAct(a.action),
-        ttlMs: bounded(a.ttlMs, 100, 10000, "action lifetime"),
+        ttlMs: bounded(a.ttlMs, 100, maxActTtlMs, "action lifetime"),
+      };
+    case "move":
+      only(a, ["kind", "move", "ttlMs"]);
+      return {
+        kind: "move",
+        move: parseMove(a.move),
+        ttlMs: bounded(a.ttlMs, 100, maxMoveTtlMs, "action lifetime"),
       };
     case "stop":
       only(a, ["kind", "closeJaw"]);
@@ -164,18 +225,24 @@ export const actTool = {
   type: "function" as const,
   name: "puppet_act",
   strict: false,
-  description:
-    "Perform a small expressive gesture and/or set portrait eye expression. Positive yaw is counterclockwise from above (the puppet's left); negative yaw is clockwise. Positive pitch looks up. Use gesture look with yaw and/or pitch to aim the head. nod/shake/bow/perk/sway/celebrate add motion on top of the current aim. The body can move quickly: 500 deg/s is a normal fast move and 800 deg/s is the safe upper bound. Audio drives the jaw automatically. Use sparingly alongside conversation; do not narrate routine gestures.",
+  description: catalogToolDescription(),
   parameters: {
     type: "object",
     properties: {
-      gesture: { type: "string", enum: gestures },
-      n: { type: "integer", minimum: 1, maximum: 3 },
-      yaw: { type: "number", minimum: -90, maximum: 90 },
-      pitch: { type: "number", minimum: -45, maximum: 45 },
+      move: { type: "string", enum: modelMoveIds },
+      n: { type: "integer", minimum: 1, maximum: maxMoveRepetitions },
+      yaw: {
+        type: "number",
+        minimum: config.motors.baseYaw.min,
+        maximum: config.motors.baseYaw.max,
+      },
+      pitch: {
+        type: "number",
+        minimum: config.motors.headPitch.min,
+        maximum: config.motors.headPitch.max,
+      },
       expression: { type: "string", enum: expressionIds },
     },
-    required: ["gesture"],
     additionalProperties: false,
   },
 };

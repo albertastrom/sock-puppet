@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { Creature, maxJawOpenForPitch } from "../src/creature";
 import { Simulator } from "../src/simulator";
-import { parseAct, parseCreature, gestures } from "../src/actions";
+import { parseAct, parseCreature, parseMove, gestures } from "../src/actions";
 import { config, joints } from "../src/config";
 const initial = () => new Simulator().getState();
 it("runs deterministic seeded local life without network input", () => {
@@ -295,3 +295,144 @@ it("finishes two nods before a following look and cancels queued work on stop", 
   expect(s.getState().creature?.behavior).toBe("stopped");
   expect(s.getState().creature?.actionId).not.toBe("queued");
 });
+
+it("plays dance as one atomic routine, then restores idle aim", () => {
+  const s = new Simulator();
+  expect(
+    s.applyCommand({
+      version: 2,
+      type: "command",
+      id: "dance",
+      creature: {
+        kind: "move",
+        move: { id: "dance", n: 1 },
+        ttlMs: 20000,
+      },
+    }).type,
+  ).toBe("ack");
+  expect(
+    s.applyCommand({
+      version: 2,
+      type: "command",
+      id: "nod",
+      creature: {
+        kind: "act",
+        action: { gesture: "nod", n: 1 },
+        ttlMs: 10000,
+      },
+    }).type,
+  ).toBe("ack");
+  let minYaw = 0;
+  let maxYaw = 0;
+  const faces = new Set<string>();
+  for (let i = 0; i < 200; i++) {
+    s.step(0.02);
+    const state = s.getState();
+    expect(state.creature?.moveId).toBe("dance");
+    expect(state.creature?.actionId).toBe("dance");
+    minYaw = Math.min(minYaw, state.motors.baseYaw.angleDeg);
+    maxYaw = Math.max(maxYaw, state.motors.baseYaw.angleDeg);
+    if (state.eyes.left.mode === "expression") faces.add(state.eyes.left.name);
+  }
+  expect(minYaw).toBeLessThan(-50);
+  expect(maxYaw).toBeGreaterThan(20);
+  expect(faces.has("joy") || faces.has("love") || faces.has("focus")).toBe(
+    true,
+  );
+  for (let i = 0; i < 200; i++) s.step(0.02);
+  expect(s.getState().creature?.actionStatus).toBe("completed");
+  expect(s.getState().creature?.behavior).toBe("idle/listening");
+  expect(Math.abs(s.getState().motors.baseYaw.targetDeg)).toBeLessThan(8);
+});
+
+it("cancels a queued follow-up when a routine is stopped", () => {
+  const s = new Simulator();
+  s.applyCommand({
+    version: 2,
+    type: "command",
+    id: "scan",
+    creature: { kind: "move", move: { id: "scan", n: 1 }, ttlMs: 20000 },
+  });
+  s.applyCommand({
+    version: 2,
+    type: "command",
+    id: "later",
+    creature: {
+      kind: "move",
+      move: { id: "hello", n: 1 },
+      ttlMs: 10000,
+    },
+  });
+  for (let i = 0; i < 20; i++) s.step(0.02);
+  s.freeze();
+  for (let i = 0; i < 50; i++) s.step(0.02);
+  expect(s.getState().creature?.behavior).toBe("stopped");
+  expect(s.getState().creature?.actionId).not.toBe("later");
+});
+
+it("clamps catalog routines to narrower yaw calibration", () => {
+  const limits = structuredClone(config.motors);
+  limits.baseYaw.min = -18;
+  limits.baseYaw.max = 18;
+  const c = new Creature(3, limits);
+  c.accept(
+    { kind: "move", move: { id: "dance", n: 1 }, ttlMs: 20000 },
+    "dance",
+    initial(),
+  );
+  for (let i = 0; i < 300; i++) {
+    const yaw = c.tick(20)!.motors!.baseYaw!.angleDeg;
+    expect(yaw).toBeGreaterThanOrEqual(-18);
+    expect(yaw).toBeLessThanOrEqual(18);
+  }
+});
+
+it("aims freely with yaw/pitch and still rejects unknown moves and over-range aim", () => {
+  expect(parseMove({ move: "look", yaw: -40, pitch: 12 }).yaw).toBe(-40);
+  expect(parseMove({ id: "nod", yaw: 10 }).yaw).toBe(10);
+  expect(() => parseMove({ move: "look", yaw: 120 })).toThrow();
+  expect(() =>
+    parseCreature({
+      kind: "move",
+      move: { id: "unknown-spin", n: 1 },
+      ttlMs: 1000,
+    }),
+  ).toThrow();
+});
+
+it("nods around an explicit aimed rest pose without leaving motor limits", () => {
+  const s = new Simulator();
+  s.applyCommand({
+    version: 2,
+    type: "command",
+    id: "aim-nod",
+    creature: {
+      kind: "move",
+      move: { id: "nod", n: 1, yaw: 40, pitch: 8 },
+      ttlMs: 10000,
+    },
+  });
+  let minPitch = 45;
+  let maxYaw = 0;
+  for (let i = 0; i < 80; i++) {
+    s.step(0.02);
+    const state = s.getState();
+    maxYaw = Math.max(maxYaw, state.motors.baseYaw.angleDeg);
+    minPitch = Math.min(minPitch, state.motors.headPitch.angleDeg);
+    expect(s.getState().motors.baseYaw.angleDeg).toBeGreaterThanOrEqual(
+      config.motors.baseYaw.min,
+    );
+    expect(s.getState().motors.baseYaw.angleDeg).toBeLessThanOrEqual(
+      config.motors.baseYaw.max,
+    );
+    expect(s.getState().motors.headPitch.angleDeg).toBeGreaterThanOrEqual(
+      config.motors.headPitch.min,
+    );
+    expect(s.getState().motors.headPitch.angleDeg).toBeLessThanOrEqual(
+      config.motors.headPitch.max,
+    );
+  }
+  expect(maxYaw).toBeGreaterThan(30);
+  expect(minPitch).toBeLessThan(0);
+});
+

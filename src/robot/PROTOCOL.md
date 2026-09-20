@@ -25,8 +25,22 @@ Commands use `{version:2,type:"command",id,...}`. IDs are nonempty and at most 1
 }
 ```
 
+```json
+{
+  "version": 2,
+  "type": "command",
+  "id": "dance-1",
+  "creature": {
+    "kind": "move",
+    "move": { "id": "dance", "n": 1 },
+    "ttlMs": 20000
+  }
+}
+```
+
 - `act`: gesture is `none`, `nod`, `shake`, `look`, `bow`, `perk`, `sway`, or `celebrate`. `n` defaults to 1 and is an integer 1–3. Optional `yaw` and `pitch` are absolute degrees (positive yaw is counterclockwise from above / the puppet's left; positive pitch looks up); omitted yaw, pitch, or expression preserves that channel. Host rejects explicit yaw or pitch outside device calibration. Runtime trajectories remain within calibrated limits. Actions queue behind the current gesture (up to eight waiting), are deduplicated by ID (last 256), and end within `ttlMs` (100–10,000 ms). Host and device queue residence reduce this remaining lifetime. Stop clears both queues. Gesture periods are defined in `gestures.ts`; expressions return to neutral after four seconds. Completion telemetry means the animation timeline ended, not that a physical feedback sensor confirmed arrival.
-- `behavior`: `{kind:"behavior",behavior:"idle/listening"}` starts local life. Other values are `thinking`, `performing`, and `stopped`. Optional `idleGain` (0–2), `jawGain` (0–300), `gaze` (`x`,`y`,`convergence`: −1…1; `size`: 0.5…1.5), and `sequence` (a catalog name or null) support offline tuning. Specifying gaze holds it until autonomous gaze is restored by a runtime restart.
+- `move`: additive catalog command `{kind:"move",move:{id?,n,yaw?,pitch?,expression?},ttlMs}`. `id` is optional. Precise `yaw` and `pitch` are the primary controls and are valid on any move, including with a named catalog id; omitted id with yaw/pitch aims via `look`. Named ids from `move-catalog.ts` (gestures, poses such as `curious`/`hello`/`surprised`, and special routines such as `dance`/`victory`/`scan`/`wink`) are optional shortcuts for beats that are hard to aim by hand. `n` is 1–3; non-repeatable poses clamp to one. Host rejects explicit yaw or pitch outside device calibration. Gesture offsets play on the current aim and are then clamped to calibrated motor limits. Routines are one atomic queued action with a keyframe timeline (elapsed time, bounded yaw/pitch, easing, optional named expression or bounded eye sequence). They do not expand into many host commands. `ttlMs` is 100–20,000 ms. Author routines without jaw, speed, raw motors, pixels, or symbol modes; named expressions are what physical OLEDs can draw. Keyframe yaw/pitch are clamped to device calibration. On completion the runtime restores the declared end pose and ambient profile; on stop it cancels immediately and clears routine eye state.
+- `behavior`: `{kind:"behavior",behavior:"idle/listening"}` starts local life. Other values are `thinking`, `performing`, and `stopped`. Optional `idleGain` (0–2), `jawGain` (0–300), `gaze` (`x`,`y`,`convergence`: −1…1; `size`: 0.5…1.5), and `sequence` (a catalog name or null) support offline tuning. Specifying gaze holds it until autonomous gaze is restored by a runtime restart. Idle blink, gaze, and small head motion are data-driven from catalog ambient profiles.
 - `speech`: `{kind:"speech",rms:0.15,sequence:42}` supplies the current **played** speaker PCM envelope. Sequence is a monotonically increasing nonnegative integer. Ignore older updates; expire the envelope after 150 ms. Noise gate 0.012, attack 25 ms, release 75 ms, opening capped at 35° and calibrated limits. The computer sends an update every 20 ms; firmware owns smoothing and servo interpolation.
 - `talking`: `{kind:"talking",on:true}` replaces PCM jaw envelopes with a canned open/close cycle for demo-safe audio fallback. `on:false` closes the jaw on the usual speech timeout.
 - `stop`: `{kind:"stop",closeJaw:true}` cancels autonomous motion and freezes yaw/pitch; closes the jaw smoothly when requested. `closeJaw:false` holds all joints. Stop clears pending host work before dispatch.
@@ -62,7 +76,7 @@ Low-level commands preserve omitted actuators and pause autonomous behavior:
 
 ## Telemetry, transport, and stop semantics
 
-Publish motor state at 20 Hz with `angleDeg`, `targetDeg`, `speedDegPerSec`, and `moving`; send `eyes` when changed. Include creature status: behavior, gesture, expression, actionId, and actionStatus (`idle`, `running`, `completed`, `canceled`, `expired`). Open-loop servo positions are estimates.
+Publish motor state at 20 Hz with `angleDeg`, `targetDeg`, `speedDegPerSec`, and `moving`; send `eyes` when changed. Include creature status: behavior, gesture, expression, actionId, actionStatus (`idle`, `running`, `completed`, `canceled`, `expired`), moveId, moveProgress (0–1), and movePhase (keyframe index or null). Open-loop servo positions are estimates.
 
 Host permits one in-flight command and at most 16 queued updates. Discrete actions remain ordered. Only adjacent replaceable updates of the same kind coalesce; low-level patches merge by actuator. Canceled/superseded requests receive explicit rejection results. An already-transmitted command cannot be retracted; stop follows it.
 

@@ -3,6 +3,17 @@ import type { Command, State, ExpressionEye } from "./protocol";
 import type { Act, Behavior, CreatureUpdate } from "./actions";
 import { gestureDuration, gestureOffset } from "./gestures";
 import { sequences, type Expression, type Sequence } from "./expressions";
+import {
+  compileRoutine,
+  getMove,
+  idleProfiles,
+  moveDurationMs,
+  moveToAct,
+  sampleTimeline,
+  type CompiledTimeline,
+  type IdleProfile,
+  type Move,
+} from "./move-catalog";
 export type MotionLimits = Record<
   Joint,
   {
@@ -39,6 +50,24 @@ export type CreatureStatus = {
   expression: Expression;
   actionId: string | null;
   actionStatus: "idle" | "running" | "completed" | "canceled" | "expired";
+  moveId: string | null;
+  moveProgress: number;
+  movePhase: number | null;
+};
+type RunningAction = {
+  start: number;
+  end: number;
+  moveId: string | null;
+  cycleMs: number;
+  repeats: number;
+  act?: Act;
+  timeline?: CompiledTimeline;
+  lookFrom: { yaw: number; pitch: number };
+};
+type PendingWork = {
+  update: Extract<CreatureUpdate, { kind: "act" | "move" }>;
+  id: string;
+  expiresAt: number;
 };
 /** Pure, device-local behavior. Tick in 20ms steps; no network or wall-clock dependency. */
 export class Creature {
@@ -48,16 +77,18 @@ export class Creature {
     expression: "neutral",
     actionId: null,
     actionStatus: "idle",
+    moveId: null,
+    moveProgress: 0,
+    movePhase: null,
   };
   private time = 0;
   private seed: number;
   private restYaw = 0;
   private restPitch = 0;
-  private lookFrom = { yaw: 0, pitch: 0 };
   private idleGain = 1;
   private jawGain = 180;
-  private action?: { value: Act; start: number; end: number };
-  private pending: { value: Act; id: string; expiresAt: number }[] = [];
+  private action?: RunningAction;
+  private pending: PendingWork[] = [];
   private expressionUntil = 0;
   private nextBlink = 2200;
   private blinkStart = -1000;
@@ -70,6 +101,7 @@ export class Creature {
   private fixedGaze = false;
   private sequence?: Sequence;
   private sequenceStart = 0;
+  private sequenceOnce = false;
   private rms = 0;
   private speechAt = -Infinity;
   private speechSequence = -1;
@@ -87,6 +119,17 @@ export class Creature {
     this.seed = (Math.imul(this.seed, 1664525) + 1013904223) >>> 0;
     return this.seed / 4294967296;
   }
+  private profile(): IdleProfile {
+    return this.status.behavior === "thinking"
+      ? idleProfiles.thinking
+      : idleProfiles.listening;
+  }
+  private clearRoutineEyes() {
+    if (this.sequenceOnce) {
+      this.sequence = undefined;
+      this.sequenceOnce = false;
+    }
+  }
   stop() {
     this.status = {
       ...this.status,
@@ -100,7 +143,9 @@ export class Creature {
     this.speechAt = -Infinity;
     this.speechSequence = -1;
     this.talking = false;
+    this.clearRoutineEyes();
     this.sequence = undefined;
+    this.sequenceOnce = false;
     this.expressionUntil = 0;
   }
   accept(update: CreatureUpdate, id: string, state: State) {
@@ -145,43 +190,59 @@ export class Creature {
       if (update.sequence !== undefined) {
         this.sequence = update.sequence ?? undefined;
         this.sequenceStart = this.time;
+        this.sequenceOnce = false;
       }
       return;
     }
-    const a = update.action;
-    if (
-      a.yaw !== undefined &&
-      (a.yaw < this.limits.baseYaw.min || a.yaw > this.limits.baseYaw.max)
-    )
-      throw new Error("Yaw exceeds device calibration");
-    if (
-      a.pitch !== undefined &&
-      (a.pitch < this.limits.headPitch.min ||
-        a.pitch > this.limits.headPitch.max)
-    )
-      throw new Error("Pitch exceeds device calibration");
+    this.validateAim(update.kind === "act" ? update.action : update.move);
     if (this.action) {
       if (this.pending.length >= 8)
         throw new Error("Creature action queue full");
-      this.pending.push({ value: a, id, expiresAt: this.time + update.ttlMs });
-    } else this.startAction(a, id, update.ttlMs);
+      this.pending.push({
+        update,
+        id,
+        expiresAt: this.time + update.ttlMs,
+      });
+    } else this.startUpdate(update, id, update.ttlMs);
   }
-  private startAction(a: Act, id: string, ttlMs: number) {
-    if (a.gesture === "look") {
-      this.lookFrom = { yaw: this.pose.yaw, pitch: this.pose.pitch };
-    }
+  private validateAim(value: Act | Move) {
+    if (
+      value.yaw !== undefined &&
+      (value.yaw < this.limits.baseYaw.min || value.yaw > this.limits.baseYaw.max)
+    )
+      throw new Error("Yaw exceeds device calibration");
+    if (
+      value.pitch !== undefined &&
+      (value.pitch < this.limits.headPitch.min ||
+        value.pitch > this.limits.headPitch.max)
+    )
+      throw new Error("Pitch exceeds device calibration");
+  }
+  private startUpdate(
+    update: Extract<CreatureUpdate, { kind: "act" | "move" }>,
+    id: string,
+    ttlMs: number,
+  ) {
+    if (update.kind === "act") this.startAction(update.action, id, ttlMs, update.action.gesture);
+    else this.startMove(update.move, id, ttlMs);
+  }
+  private startAction(a: Act, id: string, ttlMs: number, moveId: string | null) {
+    const lookFrom = { yaw: this.pose.yaw, pitch: this.pose.pitch };
     if (a.yaw !== undefined) this.restYaw = a.yaw;
     if (a.pitch !== undefined) this.restPitch = a.pitch;
     if (a.expression) {
       this.status.expression = a.expression;
       this.expressionUntil = this.time + 4000;
     }
+    const cycleMs = gestureDuration[a.gesture];
     this.action = {
-      value: a,
       start: this.time,
-      end:
-        this.time +
-        Math.min(ttlMs, Math.max(400, gestureDuration[a.gesture] * a.n)),
+      end: this.time + Math.min(ttlMs, Math.max(400, cycleMs * a.n)),
+      moveId,
+      cycleMs,
+      repeats: a.n,
+      act: a,
+      lookFrom,
     };
     this.status = {
       ...this.status,
@@ -189,22 +250,74 @@ export class Creature {
       gesture: a.gesture,
       actionId: id,
       actionStatus: "running",
+      moveId,
+      moveProgress: 0,
+      movePhase: null,
+    };
+  }
+  private startMove(move: Move, id: string, ttlMs: number) {
+    const entry = getMove(move.id);
+    if (entry.kind === "gesture" || entry.kind === "pose") {
+      const action = moveToAct(move);
+      if (entry.kind === "pose") {
+        if (action.yaw !== undefined)
+          action.yaw = Math.max(
+            this.limits.baseYaw.min,
+            Math.min(this.limits.baseYaw.max, action.yaw),
+          );
+        if (action.pitch !== undefined)
+          action.pitch = Math.max(
+            this.limits.headPitch.min,
+            Math.min(this.limits.headPitch.max, action.pitch),
+          );
+      }
+      this.startAction(action, id, ttlMs, move.id);
+      return;
+    }
+    const timeline = compileRoutine(entry, move, this.limits);
+    if (timeline.overlayExpression) {
+      this.status.expression = timeline.overlayExpression;
+      this.expressionUntil = this.time + Math.min(ttlMs, timeline.duration * timeline.n);
+    }
+    this.action = {
+      start: this.time,
+      end: this.time + Math.min(ttlMs, Math.max(400, moveDurationMs(move))),
+      moveId: move.id,
+      cycleMs: timeline.duration,
+      repeats: timeline.n,
+      timeline,
+      lookFrom: { yaw: this.pose.yaw, pitch: this.pose.pitch },
+    };
+    this.status = {
+      ...this.status,
+      behavior: "performing",
+      gesture: "none",
+      actionId: id,
+      actionStatus: "running",
+      moveId: move.id,
+      moveProgress: 0,
+      movePhase: 0,
     };
   }
   tick(dt: number): Pick<Command, "motors" | "eyes"> | undefined {
     this.time += dt;
     if (this.status.behavior === "stopped") return;
     const t = this.time;
+    const ambient = this.profile();
     if (this.action && t >= this.action.end) {
+      const needed = this.action.cycleMs * this.action.repeats;
+      const expired = t - this.action.start + 1 < needed;
+      if (this.action.timeline && !expired) {
+        this.restYaw = this.action.timeline.endPose.yaw;
+        this.restPitch = this.action.timeline.endPose.pitch;
+        this.clearRoutineEyes();
+        this.status.behavior = this.action.timeline.endAmbient;
+      } else this.status.behavior = "idle/listening";
       this.status = {
         ...this.status,
         gesture: "none",
-        actionStatus:
-          t - this.action.start + 1 <
-          gestureDuration[this.action.value.gesture] * this.action.value.n
-            ? "expired"
-            : "completed",
-        behavior: "idle/listening",
+        actionStatus: expired ? "expired" : "completed",
+        moveProgress: expired ? this.status.moveProgress : 1,
       };
       this.action = undefined;
     }
@@ -215,25 +328,28 @@ export class Creature {
           ...this.status,
           actionId: next.id,
           actionStatus: "expired",
+          moveId: next.update.kind === "move" ? next.update.move.id : next.update.action.gesture,
+          moveProgress: 0,
+          movePhase: null,
         };
         continue;
       }
-      this.startAction(next.value, next.id, next.expiresAt - t);
+      this.startUpdate(next.update, next.id, next.expiresAt - t);
     }
     if (this.expressionUntil && t >= this.expressionUntil) {
       this.status.expression = "neutral";
       this.expressionUntil = 0;
     }
-    if (t >= this.nextBlink) {
+    if (ambient.blink && t >= this.nextBlink) {
       this.blinkStart = t;
-      this.nextBlink = t + 2200 + this.random() * 4200;
+      this.nextBlink = t + ambient.blinkEveryMin + this.random() * ambient.blinkEverySpan;
     }
     if (!this.fixedGaze && t >= this.nextGaze) {
       this.gazeTarget = {
-        x: (this.random() * 2 - 1) * 0.75,
-        y: (this.random() * 2 - 1) * 0.55,
+        x: (this.random() * 2 - 1) * ambient.gazeX,
+        y: (this.random() * 2 - 1) * ambient.gazeY,
       };
-      this.nextGaze = t + 900 + this.random() * 2800;
+      this.nextGaze = t + ambient.gazeEveryMin + this.random() * ambient.gazeEverySpan;
     }
     if (!this.fixedGaze) {
       const k = 1 - Math.exp(-dt / 55);
@@ -250,10 +366,11 @@ export class Creature {
       t >= this.nextIdleLook
     ) {
       this.idleLookTarget = {
-        yaw: (this.random() * 2 - 1) * 6,
-        pitch: (this.random() * 2 - 1) * 3.5,
+        yaw: (this.random() * 2 - 1) * ambient.lookYaw,
+        pitch: (this.random() * 2 - 1) * ambient.lookPitch,
       };
-      this.nextIdleLook = t + 2200 + this.random() * 3800;
+      this.nextIdleLook =
+        t + ambient.lookEveryMin + this.random() * ambient.lookEverySpan;
     }
     const idleLookSmoothing = 1 - Math.exp(-dt / 650);
     this.idleLook.yaw +=
@@ -263,50 +380,86 @@ export class Creature {
     let expression = this.status.expression;
     if (this.sequence) {
       const frames = sequences[this.sequence];
-      let elapsed =
-        (t - this.sequenceStart) % frames.reduce((sum, f) => sum + f[1], 0);
-      for (const frame of frames) {
-        expression = frame[0];
-        if (elapsed < frame[1]) break;
-        elapsed -= frame[1];
+      const total = frames.reduce((sum, f) => sum + f[1], 0);
+      let elapsed = t - this.sequenceStart;
+      if (this.sequenceOnce && elapsed >= total)
+        expression = frames[frames.length - 1]![0];
+      else {
+        elapsed = total > 0 ? elapsed % total : 0;
+        for (const frame of frames) {
+          expression = frame[0];
+          if (elapsed < frame[1]) break;
+          elapsed -= frame[1];
+        }
       }
     }
     const blink = t - this.blinkStart;
-    const openness = this.sequence
-      ? 1
-      : blink < 240
-        ? Math.abs(blink - 120) / 120
-        : 1;
+    const openness =
+      this.sequence || !ambient.blink
+        ? 1
+        : blink < 240
+          ? Math.abs(blink - 120) / 120
+          : 1;
     const waiting = this.status.behavior === "idle/listening";
     let yaw =
         this.restYaw +
-        (Math.sin(t / 5200) * 2 + (waiting ? this.idleLook.yaw : 0)) *
+        (Math.sin(t / 5200) * ambient.driftYaw +
+          (waiting ? this.idleLook.yaw : 0)) *
           this.idleGain,
       pitch =
         this.restPitch +
-        (this.status.behavior === "thinking"
-          ? 4
-          : Math.sin(t / 4100) * 1.2 +
-            (waiting ? this.idleLook.pitch : 0)) *
+        ((this.status.behavior === "thinking"
+          ? ambient.extraPitch
+          : Math.sin(t / 4100) * ambient.driftPitch +
+            (waiting ? this.idleLook.pitch : 0))) *
           this.idleGain;
     if (this.action) {
-      const { value, start } = this.action;
-      const period = gestureDuration[value.gesture];
-      const elapsed = t - start;
-      if (value.gesture === "look" && period > 0) {
-        const phase = Math.min(1, elapsed / period);
-        const ease = 1 - (1 - phase) ** 3;
-        yaw =
-          this.lookFrom.yaw + (this.restYaw - this.lookFrom.yaw) * ease;
-        pitch =
-          this.lookFrom.pitch + (this.restPitch - this.lookFrom.pitch) * ease;
-      } else {
-        const offset = gestureOffset(
-          value.gesture,
-          period ? ((elapsed % period) / period) : 0,
+      const span = this.action.end - this.action.start;
+      this.status.moveProgress =
+        span <= 0 ? 1 : Math.min(1, (t - this.action.start) / span);
+      const elapsed = t - this.action.start;
+      if (this.action.timeline) {
+        const sample = sampleTimeline(
+          this.action.timeline,
+          elapsed,
+          this.action.lookFrom,
         );
-        yaw = this.restYaw + offset.yaw;
-        pitch = this.restPitch + offset.pitch;
+        yaw = sample.yaw;
+        pitch = sample.pitch;
+        this.status.movePhase = sample.phase;
+        if (sample.expression) {
+          this.status.expression = sample.expression;
+          expression = this.sequence ? expression : sample.expression;
+          this.expressionUntil = this.action.end + 4000;
+        }
+        if (sample.sequence !== undefined) {
+          const next = sample.sequence ?? undefined;
+          if (next !== this.sequence) {
+            this.sequence = next;
+            this.sequenceStart = t;
+            this.sequenceOnce = true;
+          }
+        }
+      } else if (this.action.act) {
+        const value = this.action.act;
+        const period = this.action.cycleMs;
+        if (value.gesture === "look" && period > 0) {
+          const phase = Math.min(1, elapsed / period);
+          const ease = 1 - (1 - phase) ** 3;
+          yaw =
+            this.action.lookFrom.yaw +
+            (this.restYaw - this.action.lookFrom.yaw) * ease;
+          pitch =
+            this.action.lookFrom.pitch +
+            (this.restPitch - this.action.lookFrom.pitch) * ease;
+        } else {
+          const offset = gestureOffset(
+            value.gesture,
+            period ? (elapsed % period) / period : 0,
+          );
+          yaw = this.restYaw + offset.yaw;
+          pitch = this.restPitch + offset.pitch;
+        }
       }
     }
     const smoothingTau =
