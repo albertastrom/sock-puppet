@@ -1,5 +1,5 @@
 import { Creature } from "./creature";
-import type { MotionLimits } from "./creature";
+import type { MotionCoupling, MotionLimits } from "./creature";
 import { config, joints, sides, type Joint } from "./config";
 import {
   defaultEye,
@@ -50,8 +50,8 @@ export class Simulator {
     jawOpen: 0,
   };
   private listeners = new Set<() => void>();
-  constructor(limits?: MotionLimits) {
-    this.creature = new Creature(7, limits);
+  constructor(limits?: MotionLimits, coupling?: MotionCoupling) {
+    this.creature = new Creature(7, limits, coupling);
   }
   getState = (): State => this.state;
   subscribe = (listener: () => void) => {

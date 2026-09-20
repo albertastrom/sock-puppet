@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { Creature } from "../src/creature";
+import { Creature, maxJawOpenForPitch } from "../src/creature";
 import { Simulator } from "../src/simulator";
 import { parseAct, parseCreature, gestures } from "../src/actions";
 import { config, joints } from "../src/config";
@@ -172,6 +172,44 @@ it("speech envelope releases on silence/staleness and rejects old sequence numbe
   let last = 0;
   for (let i = 0; i < 60; i++) last = c.tick(20)!.motors!.jawOpen!.angleDeg;
   expect(last).toBe(0);
+});
+it("caps speech jaw at a narrower mechanical limit", () => {
+  const limits = structuredClone(config.motors);
+  limits.jawOpen.max = 30;
+  const c = new Creature(7, limits);
+  c.accept({ kind: "behavior", behavior: "idle/listening" }, "i", initial());
+  c.accept({ kind: "speech", rms: 1, sequence: 1 }, "p", initial());
+  let max = 0;
+  for (let i = 0; i < 40; i++)
+    max = Math.max(max, c.tick(20)!.motors!.jawOpen!.angleDeg);
+  expect(max).toBeGreaterThan(15);
+  expect(max).toBeLessThanOrEqual(30);
+});
+it("shrinks jaw opening when the head is fully down", () => {
+  expect(maxJawOpenForPitch(0, config.motors, 15)).toBe(45);
+  const limits = structuredClone(config.motors);
+  limits.jawOpen.max = 30;
+  expect(maxJawOpenForPitch(0, limits, 15)).toBe(30);
+  expect(maxJawOpenForPitch(-35, limits, 15)).toBe(30);
+  expect(maxJawOpenForPitch(-40, limits, 15)).toBe(22.5);
+  expect(maxJawOpenForPitch(-45, limits, 15)).toBe(15);
+  const c = new Creature(7, limits, { jawMaxWhenHeadDown: 15 });
+  c.accept({ kind: "behavior", behavior: "idle/listening" }, "i", initial());
+  c.accept(
+    { kind: "act", action: { gesture: "look", n: 1, pitch: -45 }, ttlMs: 5000 },
+    "look",
+    initial(),
+  );
+  let pitch = 0;
+  for (let i = 0; i < 80; i++)
+    pitch = c.tick(20)!.motors!.headPitch!.angleDeg;
+  expect(pitch).toBeLessThanOrEqual(-44);
+  c.accept({ kind: "speech", rms: 1, sequence: 1 }, "p", initial());
+  let max = 0;
+  for (let i = 0; i < 15; i++)
+    max = Math.max(max, c.tick(20)!.motors!.jawOpen!.angleDeg);
+  expect(max).toBeGreaterThan(0);
+  expect(max).toBeLessThanOrEqual(16);
 });
 it("validates complete updates atomically and honors narrower calibration", () => {
   expect(() => parseAct({ gesture: "nod", n: 1.5 })).toThrow();
