@@ -4,13 +4,16 @@
 //   1,+,180       motor 1, positive direction, 180 degrees
 //   2,-,30        motor 2, negative direction, 30 degrees
 //   3,+,90,45     motor 3, positive, 90 degrees, at 45 degrees per second
+//   1,=,120,45    motor 1, immediately retarget to absolute servo angle 120
 // The speed term is optional (DEFAULT_SPEED when left off), capped at SPEED_LIMIT.
 // Commands are separated by a newline or a space, so a whole block can be
 // pasted at once:  1,-,40 2,+,30 3,+,60   (no spaces inside a command)
-// Angles are relative moves. Commands for the same motor are queued and play in
-// order, each easing in and out and finishing before the next one starts, so
-// 1,+,20 sent twice moves 20 and then 20 more. Different motors move at the same
-// time, and nothing blocks (see QUEUE_MOVES to add commands up instead).
+// +/- angles are relative moves. Commands for the same motor are queued and play
+// in order, each easing in and out and finishing before the next one starts, so
+// 1,+,20 sent twice moves 20 and then 20 more. '=' is an absolute, immediate
+// retarget for real-time controllers; it clears that motor's relative queue.
+// Different motors move at the same time, and nothing blocks (see QUEUE_MOVES to
+// add relative commands up instead).
 // Malformed commands get an "ERR ..." reply on the port they came from.
 
 #include <Arduino_HardwareServo.h>
@@ -47,9 +50,14 @@ class SCurveMotor {
   // the ease in/out consistent. Accumulates on the current target, clamped to
   // [lo, hi].
   void moveBy(float deg, float speed) {
+    moveTo(target_ + deg, speed);
+  }
+
+  // Retarget immediately to an absolute servo angle.
+  void moveTo(float deg, float speed) {
     vmax_ = speed;
     amax_ = speed / accelTime_;
-    target_ += deg;
+    target_ = deg;
     if (target_ < lo_) target_ = lo_;
     if (target_ > hi_) target_ = hi_;
   }
@@ -170,7 +178,7 @@ static const char *applyCommand(const char *p) {
 
   if (*p++ != ',') return "ERR format";
   char dir = *p++;
-  if (dir != '+' && dir != '-') return "ERR direction";
+  if (dir != '+' && dir != '-' && dir != '=') return "ERR direction";
 
   if (*p++ != ',') return "ERR format";
   if (*p < '0' || *p > '9') return "ERR angle";
@@ -198,13 +206,20 @@ static const char *applyCommand(const char *p) {
   int delta = dir == '+' ? angle : -angle;
 #if QUEUE_MOVES
   MoveQueue &q = queues[motor];
+  if (dir == '=') {
+    q.head = 0;
+    q.count = 0;
+    motors[motor].moveTo((float)angle, (float)speed);
+    return NULL;
+  }
   if (q.count >= QUEUE_DEPTH) return "ERR queue full";
   uint16_t slot = (q.head + q.count) % QUEUE_DEPTH;
   q.delta[slot] = (int16_t)delta;
   q.speed[slot] = (uint16_t)speed;
   q.count++;
 #else
-  motors[motor].moveBy((float)delta, (float)speed);
+  if (dir == '=') motors[motor].moveTo((float)angle, (float)speed);
+  else motors[motor].moveBy((float)delta, (float)speed);
 #endif
   return NULL;
 }
