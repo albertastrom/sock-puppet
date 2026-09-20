@@ -49,15 +49,22 @@ jaw opening. Puppeteer runs the shared Creature runtime locally and sends
 absolute, immediately retargetable commands such as `1,=,120,45`; queued `+`
 and `-` firmware commands remain available for manual testing.
 
-The default mapping is `servo angle = 90 + logical angle`. Override centers,
-directions, logical limits, and speeds with one JSON object:
+The default mapping is `servo angle = center + sign × logical angle`, with
+homes of 90° (base), 120° (head), and 180° (jaw closed, sign −1). Positive
+base yaw is counterclockwise from above (sign +1); negative is clockwise. The jaw may
+open 30° from home (PWM 150–180). When the head is fully down, available jaw
+travel shrinks to 15° (PWM 165) so the mouth cannot press into the body; the
+runtime and firmware close the jaw as needed rather than blocking the nod.
+Override centers, directions, logical limits, and speeds with one JSON object:
 
 ```sh
-SERVO_CALIBRATION_JSON='{"baseYaw":{"centerDeg":90,"sign":-1,"min":-60,"max":60},"headPitch":{"centerDeg":92,"sign":1},"jawOpen":{"centerDeg":88,"sign":1,"max":35,"maxSpeed":180}}'
+SERVO_CALIBRATION_JSON='{"baseYaw":{"min":-60,"max":60},"headPitch":{"centerDeg":118},"jawOpen":{"max":24}}'
 ```
 
 Calibrate at conservative limits before running gestures. Centers plus both
-logical endpoints must remain within the servo's 0–180 degree range. Set
+logical endpoints must remain within each motor's physical envelope (jaw
+150–180; others 0–180). Firmware rejects absolute commands outside those
+envelopes and further raises the jaw floor while the head is down. Set
 `SERIAL_PROTOCOL=v2` and normally 921600 baud only when using the older
 protocol-v2 serial emulator/reference device.
 

@@ -1,7 +1,7 @@
 import type { Duplex } from "node:stream";
 import { SerialPort } from "serialport";
 import { config, joints } from "@sock-puppet/robot/config";
-import type { MotionLimits } from "@sock-puppet/robot/creature";
+import { maxJawOpenForPitch, type MotionLimits } from "@sock-puppet/robot/creature";
 import {
   capabilitiesMessage,
   type Command,
@@ -16,6 +16,7 @@ import {
 } from "./types";
 import {
   defaultServoCalibration,
+  jawOpenMaxWhenHeadDownDeg,
   toServoAngle,
   type ServoCalibration,
 } from "./servo-calibration";
@@ -58,7 +59,13 @@ export class ServoSerialRobot implements RobotClient {
       defaultServoCalibration,
     ),
   ) {
-    this.simulator = new Simulator(this.motionLimits());
+    this.simulator = this.createSimulator();
+  }
+
+  private createSimulator() {
+    return new Simulator(this.motionLimits(), {
+      jawMaxWhenHeadDown: jawOpenMaxWhenHeadDownDeg,
+    });
   }
 
   private motionLimits(): MotionLimits {
@@ -170,14 +177,15 @@ export class ServoSerialRobot implements RobotClient {
       clearTimeout(this.handshakeTimer);
       clearTimeout(this.acknowledgmentTimer);
       this.attempts = 0;
-      this.simulator = new Simulator(this.motionLimits());
+      this.simulator = this.createSimulator();
       this.desired.clear();
       this.inFlight = undefined;
-      this.sent = new Map([
-        [1, 90],
-        [2, 90],
-        [3, 90],
-      ]);
+      this.sent = new Map(
+        joints.map((joint) => {
+          const calibration = this.calibration[joint];
+          return [calibration.motor, toServoAngle(calibration, 0)] as const;
+        }),
+      );
       this.connected = true;
       this.startRuntime();
       this.emit({
@@ -224,13 +232,19 @@ export class ServoSerialRobot implements RobotClient {
   private queueTargets() {
     if (!this.connected) return;
     const state = this.simulator.getState();
+    const jawCap = maxJawOpenForPitch(
+      state.motors.headPitch.targetDeg,
+      this.motionLimits(),
+      jawOpenMaxWhenHeadDownDeg,
+    );
     for (const joint of joints) {
       const calibration = this.calibration[joint];
       const motor = calibration.motor;
-      const angle = toServoAngle(
-        calibration,
-        state.motors[joint].targetDeg,
-      );
+      const logical =
+        joint === "jawOpen"
+          ? Math.min(state.motors.jawOpen.targetDeg, jawCap)
+          : state.motors[joint].targetDeg;
+      const angle = toServoAngle(calibration, logical);
       const speed = Math.max(
         1,
         Math.min(

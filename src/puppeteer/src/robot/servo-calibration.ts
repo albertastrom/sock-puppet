@@ -12,24 +12,48 @@ export type ServoJointCalibration = {
 
 export type ServoCalibration = Record<Joint, ServoJointCalibration>;
 
+/** Absolute PWM homes written by firmware at boot. */
+export const servoHomes = {
+  baseYaw: 90,
+  headPitch: 120,
+  jawOpen: 180,
+} as const;
+
+/** Jaw opening from home (180). Full 30° is safe unless the head is fully down. */
+export const jawOpenMaxDeg = 30;
+export const jawOpenMaxWhenHeadDownDeg = 15;
+
+/**
+ * Firmware hard stops. Jaw PWM 150–180 (30° from home). When the head is fully
+ * down, firmware also raises the jaw floor to 165 (15°) so the mouth cannot
+ * press into the body. Head may travel 0–180.
+ */
+export const servoPhysicalLimits = {
+  baseYaw: { min: 0, max: 180 },
+  headPitch: { min: 0, max: 180 },
+  jawOpen: { min: servoHomes.jawOpen - jawOpenMaxDeg, max: 180 },
+} as const;
+
 export const defaultServoCalibration: ServoCalibration = {
   baseYaw: {
     motor: 1,
-    centerDeg: 90,
+    centerDeg: servoHomes.baseYaw,
+    // +logical / +PWM from 90 is counterclockwise from above; −logical is clockwise.
     sign: 1,
     ...config.motors.baseYaw,
   },
   headPitch: {
     motor: 2,
-    centerDeg: 90,
+    centerDeg: servoHomes.headPitch,
     sign: 1,
     ...config.motors.headPitch,
   },
   jawOpen: {
     motor: 3,
-    centerDeg: 90,
-    sign: 1,
+    centerDeg: servoHomes.jawOpen,
+    sign: -1,
     ...config.motors.jawOpen,
+    max: jawOpenMaxDeg,
   },
 };
 
@@ -90,10 +114,10 @@ export function parseServoCalibration(
       throw new Error(`Invalid ${joint} calibration limits`);
     const physicalMin = next.centerDeg + next.sign * next.min;
     const physicalMax = next.centerDeg + next.sign * next.max;
-    if (
-      Math.min(physicalMin, physicalMax) < 0 ||
-      Math.max(physicalMin, physicalMax) > 180
-    )
+    const lo = Math.min(physicalMin, physicalMax);
+    const hi = Math.max(physicalMin, physicalMax);
+    const envelope = servoPhysicalLimits[joint];
+    if (lo < envelope.min || hi > envelope.max)
       throw new Error(`${joint} calibration exceeds servo range`);
   }
   return result;
@@ -107,8 +131,17 @@ export function toServoAngle(
     calibration.min,
     Math.min(calibration.max, logicalDeg),
   );
+  const envelope =
+    calibration.motor === 1
+      ? servoPhysicalLimits.baseYaw
+      : calibration.motor === 2
+        ? servoPhysicalLimits.headPitch
+        : servoPhysicalLimits.jawOpen;
   return Math.max(
-    0,
-    Math.min(180, Math.round(calibration.centerDeg + calibration.sign * logical)),
+    envelope.min,
+    Math.min(
+      envelope.max,
+      Math.round(calibration.centerDeg + calibration.sign * logical),
+    ),
   );
 }
