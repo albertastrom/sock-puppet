@@ -88,9 +88,20 @@ it("gates microphone samples for mute and push-to-talk", () => {
     ).some((v) => v > 0),
   ).toBe(true);
 });
-it("bounds playback backlog", () => {
+it("drops overflow PCM with a warning and keeps playback running", () => {
   const h = worklet();
   h.send({ type: "start", generation: 1 });
-  h.send({ type: "chunk", generation: 1, pcm: new Int16Array(48001).buffer });
-  expect(h.messages.at(-1).type).toBe("audio.error");
+  h.send({ type: "chunk", generation: 1, pcm: new Int16Array(47000).buffer });
+  expect(h.node.queuedSamples).toBe(47000);
+  expect(h.node.running).toBe(true);
+  h.send({ type: "chunk", generation: 1, pcm: new Int16Array(2000).buffer });
+  expect(h.messages.at(-1)).toMatchObject({
+    type: "audio.backpressure",
+    queuedMs: 47000 / 24,
+  });
+  expect(h.node.queuedSamples).toBe(47000);
+  expect(h.node.running).toBe(true);
+  h.render(8);
+  expect(h.messages.some((m) => m.type === "playback")).toBe(true);
+  expect(h.node.running).toBe(true);
 });

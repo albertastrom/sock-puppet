@@ -9,6 +9,8 @@ import { z } from "zod";
 import { parseCommand } from "@sock-puppet/robot/protocol";
 import { WebSocketRobot } from "./robot/websocket";
 import { SerialRobot } from "./robot/serial";
+import { ServoSerialRobot } from "./robot/servo-serial";
+import { parseServoCalibration } from "./robot/servo-calibration";
 import type { RobotClient } from "./robot/types";
 import { OpenAILive } from "./providers/openai-live";
 import { Session, type ConsoleEvent } from "./harness/session";
@@ -44,15 +46,29 @@ const providers = new OpenAILive();
 function createRobot(
   kind: string,
   serialPath = process.env.SERIAL_PATH ?? "",
-  baud = Number(process.env.SERIAL_BAUD ?? 921600),
+  baud?: number,
 ) {
-  return kind === "serial"
-    ? new SerialRobot(serialPath, baud)
-    : new WebSocketRobot(robotPort, [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        ...(process.env.TWIN_ORIGIN ? [process.env.TWIN_ORIGIN] : []),
-      ]);
+  if (kind === "serial") {
+    const protocol = process.env.SERIAL_PROTOCOL ?? "servo";
+    if (protocol === "v2")
+      return new SerialRobot(
+        serialPath,
+        baud ?? Number(process.env.SERIAL_BAUD ?? 921600),
+      );
+    if (protocol !== "servo")
+      throw new Error("SERIAL_PROTOCOL must be servo or v2");
+    return new ServoSerialRobot(
+      serialPath,
+      baud ?? Number(process.env.SERIAL_BAUD ?? 115200),
+      undefined,
+      parseServoCalibration(),
+    );
+  }
+  return new WebSocketRobot(robotPort, [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    ...(process.env.TWIN_ORIGIN ? [process.env.TWIN_ORIGIN] : []),
+  ]);
 }
 robot = createRobot(transport);
 session = new Session(robot, providers, emit);
@@ -141,6 +157,15 @@ const controls = z.discriminatedUnion("type", [
     underrun: z.boolean(),
   }),
   z.object({ type: z.literal("audio.error"), message: z.string().max(1000) }),
+  z.object({
+    type: z.literal("audio.backpressure"),
+    message: z.string().max(1000),
+    queuedMs: z.number().min(0).max(2000).optional(),
+  }),
+  z.object({
+    type: z.literal("audio.warning"),
+    message: z.string().max(1000),
+  }),
 ]);
 let switching = false;
 wss.on("connection", (socket) => {
@@ -209,6 +234,12 @@ wss.on("connection", (socket) => {
           break;
         case "audio.error":
           session.fault(msg.message);
+          break;
+        case "audio.backpressure":
+          session.backpressure(msg.message, msg.queuedMs);
+          break;
+        case "audio.warning":
+          emit({ type: "audio.warning", message: msg.message });
           break;
         case "command":
           if (session.active)

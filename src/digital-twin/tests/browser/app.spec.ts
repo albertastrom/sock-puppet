@@ -203,11 +203,11 @@ test("rejects unsafe speed, selects symbols independently, and stops motion", as
       version: 2,
       type: "command",
       id: "unsafe",
-      motors: { headPitch: { angleDeg: 10, speedDegPerSec: 61 } },
+      motors: { headPitch: { angleDeg: 10, speedDegPerSec: 801 } },
     }),
   );
   await page.getByRole("button", { name: "Send command" }).click();
-  await expect(page.locator("output")).toContainText("between 1 and 60");
+  await expect(page.locator("output")).toContainText("between 1 and 800");
   await page.getByRole("tab", { name: "Manual controls" }).click();
   await page.getByLabel("Base rotation speed").fill("5");
   await page.getByLabel("Base rotation speed").press("Enter");

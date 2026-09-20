@@ -13,6 +13,26 @@ export type MotionLimits = Record<
     acceleration: number;
   }
 >;
+/** Physical sock: full jaw travel is blocked when the head is fully down. */
+export type MotionCoupling = {
+  jawMaxWhenHeadDown: number;
+  headDownSpanDeg?: number;
+};
+export function maxJawOpenForPitch(
+  pitch: number,
+  limits: MotionLimits,
+  jawMaxWhenHeadDown: number,
+  spanDeg = 10,
+) {
+  const full = limits.jawOpen.max;
+  const restricted = Math.min(full, jawMaxWhenHeadDown);
+  const floor = limits.headPitch.min;
+  const start = floor + Math.max(0, spanDeg);
+  if (pitch >= start) return full;
+  if (pitch <= floor || start <= floor) return restricted;
+  const t = (start - pitch) / (start - floor);
+  return full - (full - restricted) * t;
+}
 export type CreatureStatus = {
   behavior: Behavior;
   gesture: string;
@@ -53,11 +73,13 @@ export class Creature {
   private rms = 0;
   private speechAt = -Infinity;
   private speechSequence = -1;
+  private talking = false;
   private jaw = 0;
   private pose = { yaw: 0, pitch: 0 };
   constructor(
     seed = 7,
     private limits: MotionLimits = config.motors,
+    private coupling?: MotionCoupling,
   ) {
     this.seed = seed;
   }
@@ -77,6 +99,7 @@ export class Creature {
     this.rms = 0;
     this.speechAt = -Infinity;
     this.speechSequence = -1;
+    this.talking = false;
     this.sequence = undefined;
     this.expressionUntil = 0;
   }
@@ -90,6 +113,14 @@ export class Creature {
         this.rms = update.rms;
         this.speechAt = this.time;
         this.speechSequence = update.sequence;
+      }
+      return;
+    }
+    if (update.kind === "talking") {
+      this.talking = update.on;
+      if (!update.on) {
+        this.rms = 0;
+        this.speechAt = -Infinity;
       }
       return;
     }
@@ -284,10 +315,22 @@ export class Creature {
     this.pose.yaw += (yaw - this.pose.yaw) * smoothing;
     this.pose.pitch += (pitch - this.pose.pitch) * smoothing;
     const amplitude = t - this.speechAt < 150 ? this.rms : 0;
-    const target =
-      amplitude < 0.012 ? 0 : Math.min(35, (amplitude - 0.012) * this.jawGain);
+    const jawCap = this.coupling
+      ? maxJawOpenForPitch(
+          this.pose.pitch,
+          this.limits,
+          this.coupling.jawMaxWhenHeadDown,
+          this.coupling.headDownSpanDeg,
+        )
+      : this.limits.jawOpen.max;
+    const target = this.talking
+      ? Math.min(jawCap, 8 + 10 * Math.abs(Math.sin(t / 90)))
+      : amplitude < 0.012
+        ? 0
+        : Math.min(35, jawCap, (amplitude - 0.012) * this.jawGain);
     this.jaw +=
       (target - this.jaw) * (1 - Math.exp(-dt / (target > this.jaw ? 25 : 75)));
+    if (this.jaw > jawCap) this.jaw = jawCap;
     const motor = (joint: Joint, value: number) => ({
       angleDeg: Math.max(
         this.limits[joint].min,
@@ -310,7 +353,10 @@ export class Creature {
       motors: {
         baseYaw: motor("baseYaw", this.pose.yaw),
         headPitch: motor("headPitch", this.pose.pitch),
-        jawOpen: motor("jawOpen", this.jaw < 0.05 ? 0 : this.jaw),
+        jawOpen: motor(
+          "jawOpen",
+          Math.min(this.jaw < 0.05 ? 0 : this.jaw, jawCap),
+        ),
       },
       eyes: { left: eye("left"), right: eye("right") },
     };
