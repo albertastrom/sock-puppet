@@ -246,6 +246,7 @@ describe("servo calibration", () => {
           sign: -1,
           min: -40,
           max: 50,
+          speed: 80,
           maxSpeed: 100,
         },
       }),
@@ -256,6 +257,7 @@ describe("servo calibration", () => {
       sign: -1,
       min: -40,
       max: 50,
+      speed: 80,
       maxSpeed: 100,
     });
     expect(calibration.headPitch).toEqual(

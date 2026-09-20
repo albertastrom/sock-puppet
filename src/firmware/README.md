@@ -30,7 +30,7 @@ command replies `OK`; malformed input replies `ERR ...`; startup prints
 
 The absolute `=` form is intended for Puppeteer's continuously changing
 Creature targets. Relative `+` and `-` moves retain their per-motor ordered
-queues for manual testing. Speeds are clamped to 1–300 degrees/second.
+queues for manual testing. Speeds are clamped to 1–800 degrees/second.
 
 The driver is open-loop: it reports command acceptance, not measured servo
 position. It has no heartbeat watchdog, OLED eye support, or protocol-v2 JSON

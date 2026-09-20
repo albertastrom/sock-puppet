@@ -11,9 +11,9 @@ npm test -w @sock-puppet/robot
 
 | Joint       | Range   | Default speed | Maximum speed | Acceleration |
 | ----------- | ------- | ------------- | ------------- | ------------ |
-| `baseYaw`   | −90…90° | 45°/s         | 175°/s        | 450°/s²      |
-| `headPitch` | −45…45° | 30°/s         | 140°/s        | 350°/s²      |
-| `jawOpen`   | 0…45°   | 60°/s         | 275°/s        | 800°/s²      |
+| `baseYaw`   | −90…90° | 500°/s        | 800°/s        | 2000°/s²     |
+| `headPitch` | −45…45° | 500°/s        | 800°/s        | 2000°/s²     |
+| `jawOpen`   | 0…45°   | 500°/s        | 800°/s        | 2500°/s²     |
 
 Positive yaw is counterclockwise from above (the puppet’s left); negative yaw is clockwise. Positive pitch looks up; positive jaw opens. These are software defaults, not measured hardware calibration. Creature behavior ticks in 20 ms steps.
 

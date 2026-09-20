@@ -176,7 +176,7 @@ static float jawLowForHead(float headPwm) {
 }
 
 static const float DEFAULT_SPEED = 120;  // deg/s, used when a command has no speed term
-static const float SPEED_LIMIT = 300;    // deg/s, fastest a command may ask for
+static const float SPEED_LIMIT = 800;    // deg/s, fastest a command may ask for
 static const float ACCEL_TIME_S = 0.3;   // Seconds to reach full speed; longer = gentler ease in/out
 static const uint32_t SMOOTH_MS = 200;   // Per smoothing pass (max 320). Longer = slower start/end, more exaggerated S
 static const uint32_t TICK_US = 5000;    // Motion update rate (200 Hz)

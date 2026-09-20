@@ -6,7 +6,7 @@ The twin, puppeteer serial emulator, and this package implement the contract. Ph
 
 All messages have `version: 2`. Serial is UTF-8 JSON followed by LF, at most 60,000 bytes excluding LF. Host sends `{ "version":2, "type":"hello" }`; firmware freezes pending motion and replies with `capabilities`. The WebSocket twin sends capabilities immediately on connection.
 
-Capabilities contain `motors` (min, max, speed, maxSpeed, acceleration, label), `display: {width:64,height:128,format:"MONO1"}`, `eyeModes: ["parameters","symbol","pixels","expression"]`, and complete `state`. Reject version 1 and landscape displays explicitly. Both dimensions change even though the framebuffer byte count remains 1,024.
+Capabilities contain `motors` (min, max, speed, maxSpeed, acceleration, label; default speed 500°/s, maxSpeed 800°/s), `display: {width:64,height:128,format:"MONO1"}`, `eyeModes: ["parameters","symbol","pixels","expression"]`, and complete `state`. Reject version 1 and landscape displays explicitly. Both dimensions change even though the framebuffer byte count remains 1,024.
 
 Commands use `{version:2,type:"command",id,...}`. IDs are nonempty and at most 128 characters. A command contains either a `creature` update or low-level `motors`/`eyes`, never both. Invalid input is rejected atomically. Reply `{version:2,type:"ack",id}` on acceptance or `{version:2,type:"error",id,message}` on rejection. Acceptance does not imply physical completion.
 

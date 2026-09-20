@@ -248,7 +248,7 @@ export class ServoSerialRobot implements RobotClient {
       const speed = Math.max(
         1,
         Math.min(
-          300,
+          800,
           Math.round(
             Math.min(
               state.motors[joint].speedDegPerSec,

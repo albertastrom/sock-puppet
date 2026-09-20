@@ -160,7 +160,7 @@ export const actTool = {
   name: "puppet_act",
   strict: false,
   description:
-    "Perform a small expressive gesture and/or set portrait eye expression. Positive yaw is counterclockwise from above (the puppet's left); negative yaw is clockwise. Positive pitch looks up. Use gesture look with yaw and/or pitch to aim the head. nod/shake/bow/perk/sway/celebrate add motion on top of the current aim. Audio drives the jaw automatically. Use sparingly alongside conversation; do not narrate routine gestures.",
+    "Perform a small expressive gesture and/or set portrait eye expression. Positive yaw is counterclockwise from above (the puppet's left); negative yaw is clockwise. Positive pitch looks up. Use gesture look with yaw and/or pitch to aim the head. nod/shake/bow/perk/sway/celebrate add motion on top of the current aim. The body can move quickly: 500 deg/s is a normal fast move and 800 deg/s is the safe upper bound. Audio drives the jaw automatically. Use sparingly alongside conversation; do not narrate routine gestures.",
   parameters: {
     type: "object",
     properties: {
