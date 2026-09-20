@@ -1,4 +1,5 @@
 import { Creature } from "./creature";
+import type { MotionLimits } from "./creature";
 import { config, joints, sides, type Joint } from "./config";
 import {
   defaultEye,
@@ -39,7 +40,7 @@ function idleState(): State {
 }
 
 export class Simulator {
-  readonly creature = new Creature();
+  readonly creature: Creature;
   private accumulator = 0;
   private seen = new Set<string>();
   private state: State = idleState();
@@ -49,6 +50,9 @@ export class Simulator {
     jawOpen: 0,
   };
   private listeners = new Set<() => void>();
+  constructor(limits?: MotionLimits) {
+    this.creature = new Creature(7, limits);
+  }
   getState = (): State => this.state;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
