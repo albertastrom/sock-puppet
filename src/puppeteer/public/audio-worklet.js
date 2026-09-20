@@ -1,7 +1,19 @@
 /* Continuous Live PCM. No transcript, response, or tool event defines an audio boundary. */
+const DEFAULT_CAPACITY = 24000 * 30;
 class PuppetAudio extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
+    const requested = options?.processorOptions?.capacitySamples;
+    const overflow =
+      typeof options?.processorOptions?.overflowMessage === "string"
+        ? options.processorOptions.overflowMessage
+        : "Playback queue exceeded 30 seconds of unplayed audio";
+    this.capacity =
+      Number.isFinite(requested) && requested > 0
+        ? Math.floor(requested)
+        : DEFAULT_CAPACITY;
+    this.overflowMessage = overflow;
+    this.buffer = new Int16Array(this.capacity);
     this.capture = [];
     this.capturePhase = 0;
     this.captureSum = 0;
@@ -30,31 +42,44 @@ class PuppetAudio extends AudioWorkletProcessor {
         this.running &&
         m.generation === this.generation
       ) {
-        const pcm = new Int16Array(m.pcm);
-        if (this.queuedSamples + pcm.length > 24000 * 2) {
-          this.port.postMessage({
-            type: "audio.backpressure",
-            message: "Dropped Live audio to keep playback under two seconds",
-            queuedMs: this.queuedSamples / 24,
-          });
-          return;
-        }
-        if (pcm.length) {
-          this.queue.push(pcm);
-          this.queuedSamples += pcm.length;
-        }
+        this.enqueue(new Int16Array(m.pcm));
       }
     };
   }
+  peek(offset) {
+    let index = this.read + offset;
+    if (index >= this.capacity) index -= this.capacity;
+    return this.buffer[index];
+  }
+  enqueue(pcm) {
+    if (!pcm.length) return;
+    if (this.queuedSamples + pcm.length > this.capacity) {
+      this.port.postMessage({
+        type: "audio.error",
+        message: this.overflowMessage,
+      });
+      this.running = false;
+      this.clear();
+      return;
+    }
+    const first = Math.min(pcm.length, this.capacity - this.write);
+    this.buffer.set(pcm.subarray(0, first), this.write);
+    if (first < pcm.length) this.buffer.set(pcm.subarray(first), 0);
+    this.write += pcm.length;
+    if (this.write >= this.capacity) this.write -= this.capacity;
+    this.queuedSamples += pcm.length;
+    if (this.queuedSamples > this.highWater) this.highWater = this.queuedSamples;
+  }
   clear() {
-    this.queue = [];
-    this.offset = 0;
-    this.phase = 0;
+    this.read = 0;
+    this.write = 0;
     this.queuedSamples = 0;
     this.played = 0;
+    this.phase = 0;
     this.energy = 0;
     this.windowSamples = 0;
     this.windowAdvanced = 0;
+    this.highWater = 0;
   }
   process(inputs, outputs) {
     const input = inputs[0]?.[0],
@@ -83,21 +108,17 @@ class PuppetAudio extends AudioWorkletProcessor {
         }
       }
       let value = 0;
-      if (this.running && this.queue.length) {
-        const current = this.queue[0],
-          a = current[this.offset],
-          b = current[this.offset + 1] ?? this.queue[1]?.[0] ?? a;
+      if (this.running && this.queuedSamples) {
+        const a = this.buffer[this.read],
+          b = this.queuedSamples > 1 ? this.peek(1) : a;
         value = (a + (b - a) * this.phase) / 32768;
         this.phase += 24000 / sampleRate;
-        while (this.phase >= 1 && this.queue.length) {
+        while (this.phase >= 1 && this.queuedSamples) {
           this.phase--;
-          this.offset++;
+          this.read++;
+          if (this.read === this.capacity) this.read = 0;
           this.queuedSamples--;
           this.played++;
-          if (this.offset === this.queue[0].length) {
-            this.queue.shift();
-            this.offset = 0;
-          }
         }
         this.windowAdvanced++;
       }
@@ -112,6 +133,7 @@ class PuppetAudio extends AudioWorkletProcessor {
             elapsedMs: this.played / 24,
             rms: Math.sqrt(this.energy / this.windowSamples),
             queuedMs: this.queuedSamples / 24,
+            highWaterMs: this.highWater / 24,
             underrun: this.windowAdvanced === 0,
           });
           this.energy = 0;

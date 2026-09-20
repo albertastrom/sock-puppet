@@ -14,6 +14,10 @@ import { parseServoCalibration } from "./robot/servo-calibration";
 import type { RobotClient } from "./robot/types";
 import { OpenAILive } from "./providers/openai-live";
 import { Session, type ConsoleEvent } from "./harness/session";
+import {
+  OPERATOR_PROTOCOL_VERSION,
+  PLAYBACK_QUEUE_MS,
+} from "./playback";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const port = Number(process.env.PORT ?? 8788),
   robotPort = Number(process.env.ROBOT_WS_PORT ?? 8787);
@@ -153,19 +157,10 @@ const controls = z.discriminatedUnion("type", [
     generation: z.number().int(),
     elapsedMs: z.number().finite().min(0),
     rms: z.number().min(0).max(1),
-    queuedMs: z.number().min(0).max(2000),
+    queuedMs: z.number().min(0).max(PLAYBACK_QUEUE_MS),
     underrun: z.boolean(),
   }),
   z.object({ type: z.literal("audio.error"), message: z.string().max(1000) }),
-  z.object({
-    type: z.literal("audio.backpressure"),
-    message: z.string().max(1000),
-    queuedMs: z.number().min(0).max(2000).optional(),
-  }),
-  z.object({
-    type: z.literal("audio.warning"),
-    message: z.string().max(1000),
-  }),
 ]);
 let switching = false;
 wss.on("connection", (socket) => {
@@ -176,6 +171,7 @@ wss.on("connection", (socket) => {
   operator = socket;
   emit({
     type: "ready",
+    protocolVersion: OPERATOR_PROTOCOL_VERSION,
     robotUrl: `ws://127.0.0.1:${robotPort}`,
     transport,
     connected: robot.connected,
@@ -235,12 +231,6 @@ wss.on("connection", (socket) => {
         case "audio.error":
           session.fault(msg.message);
           break;
-        case "audio.backpressure":
-          session.backpressure(msg.message, msg.queuedMs);
-          break;
-        case "audio.warning":
-          emit({ type: "audio.warning", message: msg.message });
-          break;
         case "command":
           if (session.active)
             throw new Error("Stop the session before manual control");
@@ -262,6 +252,7 @@ wss.on("connection", (socket) => {
             await robot.connect();
             emit({
               type: "ready",
+              protocolVersion: OPERATOR_PROTOCOL_VERSION,
               robotUrl: `ws://127.0.0.1:${robotPort}`,
               transport,
               connected: robot.connected,

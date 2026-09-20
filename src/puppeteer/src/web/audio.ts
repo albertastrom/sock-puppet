@@ -1,3 +1,8 @@
+import {
+  PLAYBACK_OVERFLOW_MESSAGE,
+  PLAYBACK_QUEUE_SAMPLES,
+} from "../playback";
+
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), ms);
@@ -19,6 +24,7 @@ export class AudioIO {
   private node?: AudioWorkletNode;
   private source?: MediaStreamAudioSourceNode;
   private epoch = 0;
+  private generation = -1;
   constructor(
     private send: (message: unknown) => void,
     private sendPCM: (pcm: ArrayBuffer) => void,
@@ -57,6 +63,10 @@ export class AudioIO {
         numberOfInputs: 1,
         numberOfOutputs: 1,
         outputChannelCount: [1],
+        processorOptions: {
+          capacitySamples: PLAYBACK_QUEUE_SAMPLES,
+          overflowMessage: PLAYBACK_OVERFLOW_MESSAGE,
+        },
       }));
       node.port.onmessage = ({ data }) => {
         if (epoch !== this.epoch) return false;
@@ -85,14 +95,25 @@ export class AudioIO {
   control(muted: boolean, ptt: boolean, held: boolean) {
     this.node?.port.postMessage({ type: "controls", muted, ptt, held });
   }
+  clearPlayback(generation = this.generation) {
+    if (generation > this.generation) this.generation = generation;
+    this.node?.port.postMessage({
+      type: "clear",
+      generation: this.generation,
+    });
+  }
   handle(message: Record<string, unknown>) {
     if (message.type === "audio.clear")
-      this.node?.port.postMessage({
-        type: "clear",
-        generation: message.generation,
-      });
-    if (message.type === "audio.start")
+      this.clearPlayback(
+        typeof message.generation === "number"
+          ? message.generation
+          : this.generation,
+      );
+    if (message.type === "audio.start") {
+      if (typeof message.generation === "number")
+        this.generation = message.generation;
       this.node?.port.postMessage({ ...message, type: "start" });
+    }
     if (message.type === "audio.chunk" && typeof message.pcm === "string") {
       const bytes = Uint8Array.from(atob(message.pcm), (c) => c.charCodeAt(0));
       this.node?.port.postMessage(
@@ -103,6 +124,7 @@ export class AudioIO {
   }
   async stop() {
     this.epoch++;
+    this.generation = -1;
     this.source?.disconnect();
     this.node?.disconnect();
     this.node = undefined;

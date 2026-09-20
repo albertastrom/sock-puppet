@@ -6,6 +6,7 @@ import { paintEye } from "@sock-puppet/robot/display";
 import { defaultEye, type Eye } from "@sock-puppet/robot/protocol";
 import type { State } from "@sock-puppet/robot/simulator";
 import { AudioIO } from "./audio";
+import { OPERATOR_PROTOCOL_VERSION } from "../playback";
 import { Badge } from "@ui/components/badge";
 import { Button } from "@ui/components/button";
 import { Input } from "@ui/components/input";
@@ -65,8 +66,8 @@ function App() {
   const [metrics, setMetrics] = useState({
     queuedMs: 0,
     underrun: false,
-    jawFallback: false,
   });
+  const [protocolVersion, setProtocolVersion] = useState<number | null>(null);
   const [usage, setUsage] = useState<unknown>();
   const [manual, setManual] = useState(
     JSON.stringify(
@@ -113,6 +114,9 @@ function App() {
         io.handle(m);
         switch (m.type) {
           case "ready":
+            setProtocolVersion(
+              typeof m.protocolVersion === "number" ? m.protocolVersion : null,
+            );
             setTransport(m.transport);
             if (m.robotUrl) setRobotUrl(m.robotUrl);
             setConnected(m.connected);
@@ -127,7 +131,7 @@ function App() {
             if (!m.active) {
               void io.stop();
               setHeld(false);
-              setMetrics({ queuedMs: 0, underrun: false, jawFallback: false });
+              setMetrics({ queuedMs: 0, underrun: false });
             }
             break;
           case "robot": {
@@ -167,11 +171,7 @@ function App() {
             setMetrics({
               queuedMs: m.queuedMs,
               underrun: m.underrun,
-              jawFallback: Boolean(m.jawFallback),
             });
-            break;
-          case "audio.warning":
-            log(m.message);
             break;
           case "usage":
             setUsage(m.value);
@@ -211,6 +211,7 @@ function App() {
         setConnected(false);
         setActive(false);
         setStarting(false);
+        setProtocolVersion(null);
         void io.stop();
         if (!canceled && event.code !== 1008) retry = setTimeout(connect, 1500);
         else if (event.code === 1008) setError(event.reason);
@@ -234,8 +235,15 @@ function App() {
   useEffect(() => {
     audio.current?.control(muted, ptt, held);
   }, [muted, ptt, held, active]);
+  const protocolOk = protocolVersion === OPERATOR_PROTOCOL_VERSION;
   const start = async () => {
     setError("");
+    if (!protocolOk) {
+      setError(
+        "Controller is out of date. Restart Puppeteer, then reload this page.",
+      );
+      return;
+    }
     setStarting(true);
     try {
       if (!(await audio.current!.start(mic))) {
@@ -258,6 +266,7 @@ function App() {
     }
   };
   const stop = () => {
+    audio.current?.clearPlayback();
     void audio.current?.stop();
     setStarting(false);
     setActive(false);
@@ -267,9 +276,18 @@ function App() {
     if (!held) return;
     setHeld(false);
   };
+  const transcriptsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = transcriptsRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [transcripts, partial]);
+  const creatureLine = state?.creature
+    ? `${state.creature.behavior} · ${state.creature.gesture} · ${state.creature.expression} · ${state.creature.actionStatus}`
+    : "—";
   return (
     <div className="relative flex h-dvh min-h-[640px] flex-col overflow-hidden bg-canvas text-ink max-[750px]:h-auto max-[750px]:overflow-visible">
-      <header className="topbar flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-oat px-5 py-3">
+      <header className="topbar flex shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-oat px-5 py-3 max-[750px]:flex-wrap max-[750px]:overflow-visible">
         <div className="min-w-0 shrink-0">
           <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-pink">
             Console
@@ -278,39 +296,51 @@ function App() {
             Puppeteer
           </h1>
         </div>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
-          <span className={`badge ${online ? "good" : ""}`}>
-            <Badge tone={online ? "live" : "mute"}>
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-hidden max-[750px]:flex-wrap max-[750px]:overflow-visible">
+          <span className={`badge shrink-0 ${online ? "good" : ""}`}>
+            <Badge className="min-w-[11.5rem] justify-center" tone={online ? "live" : "mute"}>
               <i className={cn("size-1.5 rounded-full", online ? "bg-glow" : "bg-current")} />
               {online ? "Controller online" : "Controller offline"}
             </Badge>
           </span>
-          <span className={`badge ${connected ? "good" : ""}`}>
-            <Badge tone={connected ? "ok" : "wait"}>
+          <span className={`badge shrink-0 ${connected ? "good" : ""}`}>
+            <Badge className="min-w-[5.5rem] justify-center" tone={connected ? "ok" : "wait"}>
               {connected ? "Ready" : "Waiting"}
             </Badge>
           </span>
-          <span className={`badge ${active ? "good" : ""}`}>
-            <Badge tone={active ? "pink" : "mute"}>{behavior}</Badge>
+          <span className={`badge shrink-0 ${active ? "good" : ""}`}>
+            <Badge className="min-w-[9.5rem] justify-center" tone={active ? "pink" : "mute"}>
+              {behavior}
+            </Badge>
           </span>
         </div>
       </header>
-      {error && (
-        <div className="error mx-6 mt-3 flex items-center justify-between gap-3 rounded-md bg-[#fff0ec] px-4 py-3 text-[13px] text-[#9b2c18]" role="alert">
-          <span>{error}</span>
-          <button type="button" aria-label="Dismiss error" onClick={() => setError("")}>
-            ×
-          </button>
-        </div>
-      )}
-      {!hasKey && online && (
-        <div className="notice mx-6 mt-3 rounded-md bg-oat px-4 py-3 text-[13px] text-mute">
-          Voice unavailable: configure OPENAI_API_KEY and restart.
-        </div>
-      )}
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] max-[750px]:grid-cols-1">
-        <section className="card conversation flex min-h-0 flex-col px-5 pb-28 pt-5 max-[750px]:pb-8">
-          <div className="section-heading mb-2 flex items-center justify-between">
+      <div className="relative min-h-0 flex-1 max-[750px]:min-h-0">
+        {(error || (!hasKey && online) || (online && !protocolOk)) && (
+          <div className="pointer-events-none absolute inset-x-0 top-14 z-10 flex flex-col gap-2 px-6 min-[751px]:right-[300px]">
+            {error && (
+              <div className="error pointer-events-auto flex items-center justify-between gap-3 rounded-md bg-[#fff0ec] px-4 py-3 text-[13px] text-[#9b2c18] shadow-[var(--shadow-soft)]" role="alert">
+                <span>{error}</span>
+                <button type="button" aria-label="Dismiss error" onClick={() => setError("")}>
+                  ×
+                </button>
+              </div>
+            )}
+            {!hasKey && online && (
+              <div className="notice pointer-events-auto rounded-md bg-oat px-4 py-3 text-[13px] text-mute shadow-[var(--shadow-soft)]">
+                Voice unavailable: configure OPENAI_API_KEY and restart.
+              </div>
+            )}
+            {online && !protocolOk && (
+              <div className="notice pointer-events-auto rounded-md bg-oat px-4 py-3 text-[13px] text-mute shadow-[var(--shadow-soft)]">
+                Controller is out of date. Restart Puppeteer, then reload this page.
+              </div>
+            )}
+          </div>
+        )}
+      <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_300px] overflow-hidden max-[750px]:grid-cols-1 max-[750px]:overflow-visible">
+        <section className="card conversation flex min-h-0 min-w-0 flex-col overflow-hidden px-5 pb-28 pt-5 max-[750px]:overflow-visible max-[750px]:pb-8">
+          <div className="section-heading mb-2 flex shrink-0 items-center justify-between">
             <h3 className="font-display text-[22px] italic">Conversation</h3>
             <Button
               size="sm"
@@ -321,8 +351,11 @@ function App() {
               Clear
             </Button>
           </div>
-          <div className="transcripts min-h-0 flex-1 overflow-auto pr-1">
-            {!transcripts.length && (
+          <div
+            className="transcripts min-h-0 flex-1 overflow-auto pr-1"
+            ref={transcriptsRef}
+          >
+            {!transcripts.length && !partial && (
               <p className="empty max-w-md pt-3 text-[17px] leading-relaxed text-mute">
                 Start a session when Virtual Socky is connected. Talk here. The
                 puppet answers with voice and motion.
@@ -342,29 +375,37 @@ function App() {
             )}
           </div>
         </section>
-        <aside className="min-h-0 overflow-y-auto border-l border-oat bg-paper px-5 pb-36 pt-5 max-[750px]:overflow-visible max-[750px]:border-l-0 max-[750px]:border-t max-[750px]:pb-40">
+        <aside className="panel min-h-0 w-[300px] max-w-[300px] shrink-0 overflow-x-hidden overflow-y-auto border-l border-oat bg-paper px-5 pb-36 pt-5 max-[750px]:w-auto max-[750px]:max-w-none max-[750px]:overflow-visible max-[750px]:border-l-0 max-[750px]:border-t max-[750px]:pb-40">
           <section className="eye-status" aria-label="Eye displays">
             <div className="face flex gap-4">
               <EyePreview name="Left" eye={state?.eyes.left ?? defaultEye()} />
               <EyePreview name="Right" eye={state?.eyes.right ?? defaultEye()} />
             </div>
           </section>
-          {state?.creature && (
-            <p className="mt-3 font-mono text-[11px] leading-relaxed text-mute">
-              {state.creature.behavior} · {state.creature.gesture} ·{" "}
-              {state.creature.expression} · {state.creature.actionStatus}
-            </p>
-          )}
-          <p className="live-metrics mt-3 font-mono text-[11px] text-mute">
-            Queue {Math.round(metrics.queuedMs)} ms
-            {metrics.underrun ? " · waiting for audio" : ""}
-            {metrics.jawFallback ? " · jaw fallback" : ""}
-            {pending ? ` · ${pending} pending` : ""}
+          <p className="mt-3 h-4 truncate font-mono text-[11px] leading-4 text-mute">
+            {creatureLine}
+          </p>
+          <p className="live-metrics mt-3 flex h-4 items-center gap-2 overflow-hidden font-mono text-[11px] tabular-nums text-mute">
+            <span className="shrink-0">
+              Queue{" "}
+              <span className="inline-block w-[4ch] text-right">
+                {Math.round(metrics.queuedMs)}
+              </span>{" "}
+              ms
+            </span>
+            <span className={cn("truncate", metrics.underrun ? "" : "invisible")}>
+              waiting for audio
+            </span>
+            <span className={cn("shrink-0", pending ? "" : "invisible")}>
+              {pending || 0} pending
+            </span>
           </p>
           <div className="section-heading mt-5">
             <h3 className="text-[15px] font-medium">Robot connection</h3>
           </div>
-          <p className="muted mt-1 text-[12px] text-mute">{linkMessage}</p>
+          <p className="muted mt-1 h-4 truncate text-[12px] leading-4 text-mute">
+            {linkMessage}
+          </p>
           <label className="mt-3 block text-[13px]">
             Control target
             <select
@@ -408,7 +449,7 @@ function App() {
               </label>
             </>
           ) : (
-            <p className="endpoint mt-3 text-[13px] leading-relaxed">
+            <p className="endpoint mt-3 truncate text-[13px] leading-relaxed">
               Connect Virtual Socky to <code className="rounded bg-oat px-1">{robotUrl}</code>
             </p>
           )}
@@ -430,7 +471,7 @@ function App() {
               variant="stop"
               disabled={!online || !connected}
               onClick={() => {
-                audio.current?.handle({ type: "audio.clear" });
+                audio.current?.clearPlayback();
                 send({ type: "motion.stop" });
               }}
             >
@@ -497,16 +538,17 @@ function App() {
               {logs.join("\n") || "No events yet."}
             </pre>
           </details>
-          {usage != null && (
-            <details className="mt-3 text-[12px]">
-              <summary className="cursor-pointer">Session usage</summary>
-              <pre className="mt-2 overflow-auto">{JSON.stringify(usage, null, 2)}</pre>
-            </details>
-          )}
+          <details className="mt-3 text-[12px]">
+            <summary className="cursor-pointer">Session usage</summary>
+            <pre className="mt-2 max-h-40 overflow-auto">
+              {usage != null ? JSON.stringify(usage, null, 2) : "No usage yet."}
+            </pre>
+          </details>
         </aside>
       </div>
+      </div>
       <div className="session-pill pointer-events-none fixed inset-x-0 bottom-5 z-20 flex justify-center px-4 max-[750px]:bottom-3">
-        <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-pill bg-paper p-1.5 shadow-[var(--shadow-pill)]">
+        <div className="pointer-events-auto flex max-w-full flex-nowrap items-center justify-center gap-1 overflow-x-auto rounded-pill bg-paper p-1.5 shadow-[var(--shadow-pill)] max-[750px]:flex-wrap max-[750px]:overflow-visible">
           <label className="sr-only" htmlFor="mic-select">
             Microphone
           </label>
@@ -525,10 +567,10 @@ function App() {
             ))}
           </select>
           <Button
-            className="primary"
+            className="primary min-w-[10.5rem]"
             variant="default"
             size="pill"
-            disabled={!online || !connected || !hasKey || active || starting}
+            disabled={!online || !connected || !hasKey || !protocolOk || active || starting}
             onClick={() => void start()}
           >
             {starting ? "Starting…" : "Start listening"}
@@ -563,7 +605,7 @@ function App() {
             size="pill"
             disabled={!active}
             onClick={() => {
-              audio.current?.handle({ type: "audio.clear" });
+              audio.current?.clearPlayback();
               send({ type: "interrupt" });
             }}
           >

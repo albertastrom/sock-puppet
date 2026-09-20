@@ -34,10 +34,10 @@ All services bind to loopback. The operator and twin connections enforce allowed
 
 - Choose microphone, mute, or hold push-to-talk. Capture remains a paced stream; closed input gates send silence. There are no Realtime commit events.
 - Live handles ordinary overlapping speech. Microphone volume does not automatically cancel the response, so acknowledgments can remain natural.
-- Interrupt clears queued playback and actions, tells Live to listen, and drops output until 300 ms of quiet is detected. This recovery threshold is configurable in code and needs testing with actual speakers. Stop closes the session; Stop motion also freezes all joints rather than closing the jaw.
-- Transport loss or switching stops voice and movement. Reconnect requires a new handshake and explicit Start; stale commands never replay.
+- Interrupt clears queued playback and actions immediately, tells Live to listen, and drops output until 300 ms of quiet is detected. This recovery threshold is configurable in code and needs testing with actual speakers. Stop closes the session; Stop motion also freezes all joints rather than closing the jaw.
+- Transport loss or switching stops voice and movement. Reconnect requires a new handshake and explicit Start; stale commands never replay. The console also refuses Start if it does not match the controller's operator protocol version.
 - Manual JSON uses [robot protocol v2](../robot/PROTOCOL.md) and is available while stopped. The twin playground previews all expressions, sequences, and gestures offline.
-- The console shows creature status, action acceptance/rejection, audio backlog, waiting-for-audio status, jaw fallback, commands pending, and API usage events. A backed-up speaker queue drops extra PCM and uses canned jaw motion instead of ending the session. Acceptance is not completion.
+- The console shows creature status, action acceptance/rejection, audio backlog, waiting-for-audio status, commands pending, and API usage events. Live may burst PCM faster than speaking speed; a 30-second ring buffer plays it continuously at 24 kHz. Reaching that bound faults the session instead of deleting speech. Acceptance is not completion.
 
 Audio playback begins immediately. Semantic cues accompany ongoing speech; tool-only movements need no audio. No word-level alignment is claimed. The worklet reports actual speaker PCM RMS in complete 20 ms windows. Creature attack/release smoothing and calibrated servo limits control the jaw. A missing envelope closes it after 150 ms.
 

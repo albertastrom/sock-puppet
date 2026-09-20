@@ -23,7 +23,6 @@ export class Session {
   private actionEpoch = 0;
   private lastMetrics = 0;
   private sentSamples = 0;
-  private jawFallback = false;
   private unsubscribe: () => void;
   private closing: Promise<void> = Promise.resolve();
   constructor(
@@ -81,7 +80,6 @@ export class Session {
     this.generation++;
     this.lastPlayback = 0;
     this.sentSamples = 0;
-    this.setJawFallback(false);
     this.emitPlaybackMetrics(0, false, 0, 0, true);
     this.emit({ type: "audio.start", generation: this.generation });
   }
@@ -160,7 +158,6 @@ export class Session {
     this.quietMs = 0;
     this.emit({ type: "audio.clear", generation: this.generation });
     this.scheduler.stop(closeJaw);
-    this.jawFallback = false;
     this.scheduler.setBehavior("idle/listening");
     this.live?.interrupt();
     clearTimeout(this.quietTimer);
@@ -174,7 +171,6 @@ export class Session {
     this.abort?.abort();
     this.abort = undefined;
     clearTimeout(this.quietTimer);
-    this.jawFallback = false;
     this.emit({ type: "audio.clear", generation: this.generation });
     this.scheduler.stop(closeJaw);
     if (this.live) {
@@ -193,23 +189,6 @@ export class Session {
       throw new Error("Stop the session before clearing conversation");
     this.emit({ type: "history.cleared" });
   }
-  backpressure(message: string, queuedMs = 0) {
-    if (!this.active || this.blocked) return;
-    this.setJawFallback(true, message);
-    this.emitPlaybackMetrics(queuedMs, false, 0, this.lastPlayback, true);
-  }
-  private setJawFallback(on: boolean, message?: string) {
-    if (this.jawFallback === on) return;
-    this.jawFallback = on;
-    this.scheduler.setTalking(on);
-    if (!on) return;
-    this.emit({
-      type: "audio.warning",
-      message:
-        message ??
-        "Speech jaw using canned motion while audio queue is backed up",
-    });
-  }
   private emitPlaybackMetrics(
     queuedMs: number,
     underrun: boolean,
@@ -225,7 +204,6 @@ export class Session {
       underrun,
       rms,
       elapsedMs,
-      jawFallback: this.jawFallback,
     });
   }
   playback(
@@ -244,19 +222,8 @@ export class Session {
     )
       return;
     this.lastPlayback = elapsedMs;
-    const wasFallback = this.jawFallback;
-    if (queuedMs >= 500) this.setJawFallback(true);
-    else if (this.jawFallback && queuedMs <= 200 && !underrun)
-      this.setJawFallback(false);
-    if (this.jawFallback) this.scheduler.setTalking(!underrun);
-    else this.scheduler.playback(Math.max(0, Math.min(1, rms)));
-    this.emitPlaybackMetrics(
-      queuedMs,
-      underrun,
-      rms,
-      elapsedMs,
-      wasFallback !== this.jawFallback,
-    );
+    this.scheduler.playback(Math.max(0, Math.min(1, rms)));
+    this.emitPlaybackMetrics(queuedMs, underrun, rms, elapsedMs);
   }
   dispose() {
     this.stop();
