@@ -17,6 +17,17 @@ export type Struggle = {
   sockyMove: string;
 };
 
+export type SessionStats = {
+  minutes: number;
+  turns: number;
+  classTurns: number;
+  sockyTurns: number;
+  classTalkPct: number;
+  questions: number;
+  avgClassWords: number;
+  avgSockyWords: number;
+};
+
 export type SessionReport = {
   id: string;
   when: string;
@@ -26,6 +37,8 @@ export type SessionReport = {
   topics: string[];
   struggles: string[];
   summary: string;
+  insights: string[];
+  stats: SessionStats;
   live?: boolean;
 };
 
@@ -170,6 +183,24 @@ export const demoReports: SessionReport[] = [
     struggles: ["Multi-step word problems"],
     summary:
       "Socky walked three students through a pizza-sharing story. Maya named the question on the second try. Jonah needed the soccer-score analogy once, then compared 2/3 and 3/4 without a prompt.",
+    stats: {
+      minutes: 16,
+      turns: 22,
+      classTurns: 11,
+      sockyTurns: 11,
+      classTalkPct: 48,
+      questions: 4,
+      avgClassWords: 12,
+      avgSockyWords: 18,
+    },
+    insights: [
+      "16 min with 22 turns (11 class, 11 Socky).",
+      "The class held about 48% of the words.",
+      "The class asked 4 questions.",
+      "Main thread: Fractions, Word problems.",
+      "Watch next time: Multi-step word problems.",
+      "Socky kept answers short, which matches the tutoring style.",
+    ],
   },
   {
     id: "r-seed-2",
@@ -181,6 +212,24 @@ export const demoReports: SessionReport[] = [
     struggles: ["Speaking up when stuck"],
     summary:
       "Science block. Samira explained sunlight as food for the plant. Avery gave a thumbs-up but did not speak. Socky offered two sentence starters; Avery picked one.",
+    stats: {
+      minutes: 21,
+      turns: 31,
+      classTurns: 12,
+      sockyTurns: 19,
+      classTalkPct: 32,
+      questions: 2,
+      avgClassWords: 9,
+      avgSockyWords: 22,
+    },
+    insights: [
+      "21 min with 31 turns (12 class, 19 Socky).",
+      "The class held about 32% of the words.",
+      "Socky held the floor more than the class. Next time, add wait time and ask one question at a time.",
+      "The class asked 2 questions.",
+      "Main thread: Photosynthesis, Feelings & friendship.",
+      "Watch next time: Speaking up when stuck.",
+    ],
   },
   {
     id: "r-seed-3",
@@ -192,6 +241,25 @@ export const demoReports: SessionReport[] = [
     struggles: ["Staying on the prompt"],
     summary:
       "Reading pair. Harper found the problem in the story. Quinn drifted to recess twice; Socky recapped the prompt and they finished a beginning-middle-end map.",
+    stats: {
+      minutes: 12,
+      turns: 14,
+      classTurns: 8,
+      sockyTurns: 6,
+      classTalkPct: 58,
+      questions: 1,
+      avgClassWords: 14,
+      avgSockyWords: 16,
+    },
+    insights: [
+      "12 min with 14 turns (8 class, 6 Socky).",
+      "The class held about 58% of the words.",
+      "The class did most of the talking. Strong participation.",
+      "The class asked 1 question.",
+      "Main thread: Story structure.",
+      "Watch next time: Staying on the prompt.",
+      "Socky kept answers short, which matches the tutoring style.",
+    ],
   },
 ];
 

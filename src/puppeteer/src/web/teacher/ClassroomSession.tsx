@@ -3,7 +3,6 @@ import { Mic, MicOff } from "lucide-react";
 import { defaultEye } from "@sock-puppet/robot/protocol";
 import { Badge } from "@ui/components/badge";
 import { Button } from "@ui/components/button";
-import { cn } from "@ui/lib/utils";
 import { EyePreview } from "../EyePreview";
 import { useOperator } from "../useOperator";
 import { classroomName, demoNotes } from "./demo-data";

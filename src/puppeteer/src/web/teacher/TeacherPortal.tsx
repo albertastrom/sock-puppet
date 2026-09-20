@@ -10,15 +10,8 @@ import {
   CardTitle,
 } from "@ui/components/card";
 import { Textarea } from "@ui/components/textarea";
-import {
-  classroomName,
-  demoNotes,
-  demoStats,
-  demoStruggles,
-  demoStudents,
-  demoTopics,
-  type SessionReport,
-} from "./demo-data";
+import { classroomName, demoNotes, type SessionReport } from "./demo-data";
+import { mergeDashboard } from "./analyze";
 import { allReports, loadLiveReports, loadNotes, saveNotes } from "./storage";
 
 const engagementTone = {
@@ -26,6 +19,50 @@ const engagementTone = {
   steady: "live" as const,
   low: "wait" as const,
 };
+
+function StatChips({ report }: { report: SessionReport }) {
+  const s = report.stats;
+  if (!s) return null;
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      {[
+        ["Minutes", String(s.minutes)],
+        ["Turns", `${s.classTurns} / ${s.sockyTurns}`],
+        ["Class talk", `${s.classTalkPct}%`],
+        ["Questions", String(s.questions)],
+      ].map(([label, value]) => (
+        <div key={label} className="rounded-md bg-paper px-3 py-2">
+          <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-mute">
+            {label}
+          </p>
+          <p className="font-display text-[22px] italic leading-none">{value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReportBody({ report }: { report: SessionReport }) {
+  return (
+    <>
+      <p className="mt-2 text-[14px] leading-relaxed">{report.summary}</p>
+      <StatChips report={report} />
+      {report.insights?.length ? (
+        <ul className="mt-3 list-disc space-y-1 pl-5 text-[13px] leading-relaxed">
+          {report.insights.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="mt-2 text-[12px] text-mute">
+        Topics: {report.topics.join(", ") || "—"}
+        {report.struggles.length
+          ? ` · Struggles: ${report.struggles.join(", ")}`
+          : ""}
+      </p>
+    </>
+  );
+}
 
 export function TeacherPortal({
   onStartSession,
@@ -40,7 +77,8 @@ export function TeacherPortal({
     setLiveReports(loadLiveReports());
   }, []);
   const reports = useMemo(() => allReports(liveReports), [liveReports]);
-  const maxTopic = demoTopics[0]?.sessions ?? 1;
+  const dash = useMemo(() => mergeDashboard(liveReports), [liveReports]);
+  const maxTopic = dash.topics[0]?.sessions ?? 1;
   const persist = () => {
     saveNotes(notes);
     setSaved(true);
@@ -78,10 +116,10 @@ export function TeacherPortal({
           className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
         >
           {[
-            ["Sessions this week", demoStats.sessionsThisWeek],
-            ["Students reached", demoStats.studentsReached],
-            ["Avg minutes", demoStats.avgMinutes],
-            ["Topics covered", demoStats.topicsCovered],
+            ["Sessions this week", dash.stats.sessionsThisWeek],
+            ["Students reached", dash.stats.studentsReached],
+            ["Avg minutes", dash.stats.avgMinutes],
+            ["Topics covered", dash.stats.topicsCovered],
           ].map(([label, value]) => (
             <Card key={String(label)} className="px-5 py-5">
               <CardDescription>{label}</CardDescription>
@@ -92,6 +130,25 @@ export function TeacherPortal({
           ))}
         </section>
 
+        {dash.latest && (
+          <Card className="border-pink/40">
+            <CardHeader>
+              <CardTitle>Latest session summary</CardTitle>
+              <CardDescription>
+                Built from the classroom session you just ran. Snapshot numbers
+                above already include it.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[15px] font-medium">{dash.latest.student}</p>
+                <Badge tone="pink">This session</Badge>
+              </div>
+              <ReportBody report={dash.latest} />
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader>
@@ -101,7 +158,7 @@ export function TeacherPortal({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {demoTopics.map((t) => (
+              {dash.topics.map((t) => (
                 <div key={t.name}>
                   <div className="mb-1 flex justify-between text-[13px]">
                     <span>{t.name}</span>
@@ -126,8 +183,11 @@ export function TeacherPortal({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {demoStruggles.map((s) => (
-                <div key={s.id} className="border-t border-oat pt-3 first:border-t-0 first:pt-0">
+              {dash.struggles.map((s) => (
+                <div
+                  key={s.id}
+                  className="border-t border-oat pt-3 first:border-t-0 first:pt-0"
+                >
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-[15px] font-medium">{s.title}</p>
                     <Badge tone="pink">{s.students} students</Badge>
@@ -164,7 +224,7 @@ export function TeacherPortal({
                 </tr>
               </thead>
               <tbody>
-                {demoStudents.map((s) => (
+                {dash.students.map((s) => (
                   <tr key={s.id}>
                     <td className="font-medium">{s.name}</td>
                     <td>{s.sessions}</td>
@@ -219,13 +279,16 @@ export function TeacherPortal({
                   e.target.value = "";
                   if (!file) return;
                   const text = await file.text();
-                  setNotes((old) =>
-                    `${old.trim()}\n\n— From ${file.name} —\n${text.trim()}\n`,
+                  setNotes(
+                    (old) =>
+                      `${old.trim()}\n\n— From ${file.name} —\n${text.trim()}\n`,
                   );
                 }}
               />
               {saved && (
-                <span className="text-[13px] text-mute">Saved for this browser.</span>
+                <span className="text-[13px] text-mute">
+                  Saved for this browser.
+                </span>
               )}
             </div>
           </CardContent>
@@ -257,13 +320,7 @@ export function TeacherPortal({
                     </Badge>
                   </div>
                 </div>
-                <p className="mt-2 text-[14px] leading-relaxed">{r.summary}</p>
-                <p className="mt-2 text-[12px] text-mute">
-                  Topics: {r.topics.join(", ") || "—"}
-                  {r.struggles.length
-                    ? ` · Struggles: ${r.struggles.join(", ")}`
-                    : ""}
-                </p>
+                <ReportBody report={r} />
               </article>
             ))}
           </CardContent>
