@@ -22,10 +22,11 @@
 // vmax (deg/s) and amax (deg/s^2). It copes with the target moving mid-flight:
 // new commands, reversals and clamping all just change the error it chases.
 //
-// Stage 2 (smoothing): the output is a moving average of the planner position
-// over `smoothTicks` ticks. That rounds the trapezoid's corners, so acceleration
-// ramps up and down instead of switching, giving the S-curve: ease in, fast in
-// the middle, ease out. The average settles exactly on the target.
+// Stage 2 (smoothing): the output is the planner position run through two moving
+// averages in a row, each over `smoothTicks` ticks. That rounds the trapezoid's
+// corners into a bell-shaped speed curve: a long, gentle start, a quick middle,
+// and a long, gentle end. Two passes exaggerate the shape more than one, and
+// longer windows exaggerate it further. The output settles exactly on the target.
 class SCurveMotor {
  public:
   static const int MAX_SMOOTH_TICKS = 64;
@@ -38,7 +39,7 @@ class SCurveMotor {
     target_ = plan_ = out_ = home;
     vel_ = 0;
     idx_ = 0;
-    for (int i = 0; i < n_; i++) hist_[i] = home;
+    for (int i = 0; i < n_; i++) hist_[i] = hist2_[i] = home;
   }
 
   // Relative move at up to `speed` deg/s (must be > 0). Acceleration scales with
@@ -83,10 +84,14 @@ class SCurveMotor {
       vel_ = 0;
     }
 
+    // Two moving averages in series: planner -> first average -> second average.
     hist_[idx_] = plan_;
-    idx_ = (idx_ + 1) % n_;
     float sum = 0;
     for (int i = 0; i < n_; i++) sum += hist_[i];
+    hist2_[idx_] = sum / n_;
+    idx_ = (idx_ + 1) % n_;
+    sum = 0;
+    for (int i = 0; i < n_; i++) sum += hist2_[i];
     out_ = sum / n_;
     if (out_ < lo_) out_ = lo_;
     if (out_ > hi_) out_ = hi_;
@@ -95,16 +100,18 @@ class SCurveMotor {
   // Position to send to the servo, rounded to a whole degree.
   int angle() const { return (int)(out_ + 0.5f); }
 
-  // True once the last move has fully finished: planner at rest on the target
-  // and the smoothed output has caught up (within a tenth of a step).
+  // True once the last move has finished: planner at rest on the target and the
+  // smoothed output within half a step of it, i.e. the servo is already sitting on
+  // its final whole degree. (The output keeps converging on the exact target.)
   bool settled() const {
-    return plan_ == target_ && vel_ == 0 && fabsf(out_ - target_) < 0.05f;
+    return plan_ == target_ && vel_ == 0 && fabsf(out_ - target_) < 0.5f;
   }
 
  private:
   float lo_ = 0, hi_ = 180, vmax_ = 100, amax_ = 300, accelTime_ = 0.3f;
   float target_ = 0, plan_ = 0, vel_ = 0, out_ = 0;
-  float hist_[MAX_SMOOTH_TICKS];
+  float hist_[MAX_SMOOTH_TICKS];   // Planner position history (first average)
+  float hist2_[MAX_SMOOTH_TICKS];  // First average's history (second average)
   int n_ = 1, idx_ = 0;
 };
 
@@ -125,7 +132,7 @@ static const float MAX_DEG = 180;
 static const float DEFAULT_SPEED = 120;  // deg/s, used when a command has no speed term
 static const float SPEED_LIMIT = 300;    // deg/s, fastest a command may ask for
 static const float ACCEL_TIME_S = 0.3;   // Seconds to reach full speed; longer = gentler ease in/out
-static const uint32_t SMOOTH_MS = 120;   // Longer = softer S-curve, slower to settle
+static const uint32_t SMOOTH_MS = 200;   // Per smoothing pass (max 320). Longer = slower start/end, more exaggerated S
 static const uint32_t TICK_US = 5000;    // Motion update rate (200 Hz)
 
 // ---- State ----
