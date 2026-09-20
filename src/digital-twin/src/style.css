@@ -88,4 +88,7 @@ fieldset {
     margin: 0 12px 12px;
     box-shadow: none;
   }
+  .event-log {
+    max-height: none;
+  }
 }

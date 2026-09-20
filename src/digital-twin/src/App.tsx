@@ -82,7 +82,7 @@ export default function App() {
   const moving = joints.some((joint) => state.motors[joint].moving);
   const { width, height } = config.display;
   return (
-    <div className="app flex h-dvh min-h-[760px] flex-col bg-canvas text-ink">
+    <div className="app flex h-dvh min-h-[760px] flex-col overflow-hidden bg-canvas text-ink max-[850px]:h-auto max-[850px]:overflow-visible">
       <header className="topbar flex flex-wrap items-center justify-between gap-3 border-b border-oat px-5 py-3">
         <div className="min-w-0 shrink-0">
           <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-pink">
@@ -124,10 +124,10 @@ export default function App() {
           </Button>
         </div>
       </header>
-      <main className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_340px] max-[850px]:flex max-[850px]:flex-col">
+      <main className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_340px] max-[850px]:flex max-[850px]:flex-none max-[850px]:flex-col">
         <div className="stage relative flex min-h-0 min-w-0 flex-col">
           <section
-            className="viewport relative min-h-0 min-w-0 flex-1 overflow-hidden bg-canvas max-[850px]:h-[420px] max-[850px]:flex-none"
+            className="viewport relative min-h-0 min-w-0 flex-1 overflow-hidden bg-canvas max-[850px]:h-[min(70dvh,520px)] max-[850px]:min-h-[280px] max-[850px]:flex-none"
             aria-label="Puppet simulation"
           >
             <SceneBoundary>
@@ -163,7 +163,7 @@ export default function App() {
             />
           </div>
         </div>
-        <aside className="panel min-w-0 overflow-y-auto border-l border-oat bg-paper max-[850px]:border-l-0 max-[850px]:border-t">
+        <aside className="panel min-w-0 overflow-y-auto border-l border-oat bg-paper max-[850px]:overflow-visible max-[850px]:border-l-0 max-[850px]:border-t">
           <div className="px-5 pt-5">
             <div className="flex items-end justify-between gap-2">
               <h2 className="font-display text-[22px] italic leading-none">
@@ -173,22 +173,20 @@ export default function App() {
                 {width} × {height}
               </span>
             </div>
-            <div className="eye-overview mt-3 flex gap-2">
+            <div className="eye-overview mt-3 flex justify-center gap-3">
               {sides.map((side) => (
                 <button
                   key={side}
                   type="button"
                   className={cn(
-                    "eye-card flex min-w-0 flex-1 flex-col items-start gap-2 rounded-md border-[1.5px] bg-canvas p-2",
+                    "eye-card flex w-fit flex-col items-center gap-2 rounded-md border-[1.5px] bg-canvas p-2",
                     side === eyeSide ? "selected border-ink" : "border-oat",
                   )}
                   onClick={() => setEyeSide(side)}
                   aria-pressed={side === eyeSide}
                 >
                   <EyePreview eye={state.eyes[side]} />
-                  <span className="text-xs capitalize">
-                    {side} eye <i />
-                  </span>
+                  <span className="text-xs capitalize">{side} eye</span>
                 </button>
               ))}
             </div>

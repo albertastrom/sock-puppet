@@ -103,6 +103,13 @@ test("mobile viewport remains usable", async ({ page }) => {
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     390,
   );
+  const metrics = await page.evaluate(() => ({
+    scrollHeight: document.documentElement.scrollHeight,
+    clientHeight: document.documentElement.clientHeight,
+  }));
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+  await page.getByRole("button", { name: "Neutral" }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole("button", { name: "Neutral" })).toBeInViewport();
   await page.screenshot({ path: "test-results/mobile.png", fullPage: true });
 });
 
