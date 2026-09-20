@@ -7,7 +7,8 @@
     "./*": "./src/*.ts"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "export:eyes": "tsx scripts/export-eye-bitmaps.ts"
   },
   "devDependencies": {
     "@types/node": "^22.18.0",

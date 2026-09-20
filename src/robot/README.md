@@ -20,3 +20,9 @@ Positive yaw turns toward the puppet’s left; positive pitch looks up; positive
 See [protocol v2](PROTOCOL.md) for wire messages, semantic actions, eye packing, watchdog requirements, and migration. Version-1 devices are incompatible.
 
 The 33 expressions and eight sequences come from the supplied `robot-eye-frames.html`. Unit tests hash all 66 left/right panels against that geometry, packed MSB first. Hardware brightness is a contrast setting; previews stay strictly black/white.
+
+Pre-rendered MONO1 frames for microcontroller bring-up live in [`assets/eyes`](assets/eyes) (`.bin` framebuffer + `.bmp` preview). Regenerate after expression changes:
+
+```sh
+npm run export:eyes -w @sock-puppet/robot
+```
