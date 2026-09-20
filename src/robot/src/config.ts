@@ -7,7 +7,7 @@ export const config = {
   dimensions: {
     base: 0.2,
     baseHeight: 0.025,
-    neckY: 0.37,
+    neckY: 0.34,
     radius: 0.055,
     headWidth: 0.155,
     headHeight: 0.09,

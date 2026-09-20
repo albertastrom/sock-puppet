@@ -124,7 +124,7 @@ function SockMaterial({ fabric }: { fabric: THREE.Texture }) {
           shader.fragmentShader;
         shader.fragmentShader = shader.fragmentShader.replace(
           "#include <color_fragment>",
-          "#include <color_fragment>\nfloat band = step(0.5, fract(sockUv.y * 6.0));\ndiffuseColor.rgb *= mix(sockGray, sockPink, band);",
+          "#include <color_fragment>\nfloat band = step(0.82, fract(sockUv.y * 6.0));\ndiffuseColor.rgb *= mix(sockGray, sockPink, band);",
         );
       }}
     />
