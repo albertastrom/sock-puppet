@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <U8g2lib.h>
+#include <string.h>
 #include "logo.h"
 
 // Arduino UNO Q. The sketch runs on the STM32U585, whose Zephyr overlay hands
@@ -20,11 +21,8 @@
 // analogRead(A5) would remux the pins away and the right panel would go dark.
 #define OLED_ADDR 0x3C
 #define BUS_HZ 400000
-#define FRAME_MS 800
 
-// Right eye runs one expression ahead of the left, so the two panels never show
-// the same frame. Makes it obvious at a glance that the buses are independent.
-#define RIGHT_EYE_OFFSET 20
+enum Eye { left = 0, right = 1 };
 
 // u8g2 only ships transports for Wire (_HW_I2C) and Wire1 (_2ND_HW_I2C), and
 // the Wire1 one compiles to a stub unless the core defines
@@ -85,6 +83,32 @@ class EyeDisplay : public U8G2 {
 static EyeDisplay left_eye(u8x8_byte_left_eye);
 static EyeDisplay right_eye(u8x8_byte_right_eye);
 
+// Draw one expression on one eye. `expression` is the asset name without the
+// -left/-right suffix or the .bin extension, e.g. "angry" for angry-left.bin
+// and angry-right.bin. Returns false (and says so on serial) if the name is
+// not in logo.h, so a typo shows up instead of silently leaving a stale frame.
+bool setEye(Eye eye, const char *expression) {
+  for (size_t i = 0; i < EYE_PAIR_COUNT; i++) {
+    if (strcmp(eye_pairs[i].name, expression) != 0) {
+      continue;
+    }
+
+    EyeDisplay &display = (eye == left) ? left_eye : right_eye;
+    const unsigned char *bits =
+        (eye == left) ? eye_pairs[i].left : eye_pairs[i].right;
+
+    display.clearBuffer();
+    display.drawXBM(0, 0, EYE_WIDTH, EYE_HEIGHT, bits);
+    display.sendBuffer();
+    return true;
+  }
+
+  Serial.print("setEye: no expression named '");
+  Serial.print(expression);
+  Serial.println("'");
+  return false;
+}
+
 static bool probe(TwoWire &bus, const char *label) {
   bus.beginTransmission(OLED_ADDR);
   bool ok = bus.endTransmission() == 0;
@@ -114,38 +138,9 @@ void setup() {
   right_eye.begin();
   right_eye.setContrast(0x80);
 
-  Serial.print("cycling ");
-  Serial.print((unsigned)EYE_PAIR_COUNT);
-  Serial.print(" expressions, right eye +");
-  Serial.println(RIGHT_EYE_OFFSET);
+  setEye(left, "angry");
+  setEye(right, "love");
 }
 
 void loop() {
-  for (size_t i = 0; i < EYE_PAIR_COUNT; i++) {
-    const EyePair &left_pair = eye_pairs[i];
-    const EyePair &right_pair =
-        eye_pairs[(i + RIGHT_EYE_OFFSET) % EYE_PAIR_COUNT];
-
-    left_eye.clearBuffer();
-    left_eye.drawXBM(0, 0, EYE_WIDTH, EYE_HEIGHT, left_pair.left);
-
-    right_eye.clearBuffer();
-    right_eye.drawXBM(0, 0, EYE_WIDTH, EYE_HEIGHT, right_pair.right);
-
-    // Separate buses, so these two go out independently rather than queueing
-    // behind each other on one wire.
-    left_eye.sendBuffer();
-    right_eye.sendBuffer();
-
-    Serial.print("[");
-    Serial.print((unsigned)i + 1);
-    Serial.print("/");
-    Serial.print((unsigned)EYE_PAIR_COUNT);
-    Serial.print("] left=");
-    Serial.print(left_pair.name);
-    Serial.print(" right=");
-    Serial.println(right_pair.name);
-
-    delay(FRAME_MS);
-  }
 }
