@@ -268,9 +268,9 @@ function App() {
     setHeld(false);
   };
   return (
-    <div className="relative flex h-dvh min-h-[640px] flex-col bg-canvas text-ink">
-      <header className="flex items-center justify-between gap-3 border-b border-oat px-6 py-3">
-        <div>
+    <div className="relative flex h-dvh min-h-[640px] flex-col overflow-hidden bg-canvas text-ink max-[750px]:h-auto max-[750px]:overflow-visible">
+      <header className="topbar flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-oat px-5 py-3">
+        <div className="min-w-0 shrink-0">
           <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-pink">
             Console
           </p>
@@ -278,7 +278,7 @@ function App() {
             Puppeteer
           </h1>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
           <span className={`badge ${online ? "good" : ""}`}>
             <Badge tone={online ? "live" : "mute"}>
               <i className={cn("size-1.5 rounded-full", online ? "bg-glow" : "bg-current")} />
@@ -309,7 +309,7 @@ function App() {
         </div>
       )}
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] max-[750px]:grid-cols-1">
-        <section className="card conversation flex min-h-0 flex-col px-6 pb-28 pt-4 max-[750px]:pb-8">
+        <section className="card conversation flex min-h-0 flex-col px-5 pb-28 pt-5 max-[750px]:pb-8">
           <div className="section-heading mb-2 flex items-center justify-between">
             <h3 className="font-display text-[22px] italic">Conversation</h3>
             <Button
@@ -323,7 +323,7 @@ function App() {
           </div>
           <div className="transcripts min-h-0 flex-1 overflow-auto pr-1">
             {!transcripts.length && (
-              <p className="empty max-w-md pt-10 text-[17px] leading-relaxed text-mute">
+              <p className="empty max-w-md pt-3 text-[17px] leading-relaxed text-mute">
                 Start a session when Virtual Socky is connected. Talk here. The
                 puppet answers with voice and motion.
               </p>
@@ -342,7 +342,7 @@ function App() {
             )}
           </div>
         </section>
-        <aside className="min-h-0 overflow-y-auto border-l border-oat bg-paper px-5 pb-36 pt-4 max-[750px]:border-l-0 max-[750px]:border-t max-[750px]:pb-40">
+        <aside className="min-h-0 overflow-y-auto border-l border-oat bg-paper px-5 pb-36 pt-5 max-[750px]:overflow-visible max-[750px]:border-l-0 max-[750px]:border-t max-[750px]:pb-40">
           <section className="eye-status" aria-label="Eye displays">
             <div className="face flex gap-4">
               <EyePreview name="Left" eye={state?.eyes.left ?? defaultEye()} />
