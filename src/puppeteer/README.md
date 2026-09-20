@@ -1,6 +1,6 @@
 # Puppeteer
 
-GPT Live 1 voice controller for a three-servo sock puppet. Live hears and speaks continuously; managed Responses delegation selects the single `puppet_act` tool. A shared device-local runtime supplies idle sway, blinking, gaze, eye expressions, and audio-driven jaw movement. There is no periodic AI motion polling or separate transcription/planner/TTS pipeline.
+GPT Live 1 voice controller for a three-servo sock puppet. Live hears and speaks continuously; managed Responses delegation selects the single `puppet_act` tool. A shared runtime supplies idle sway, blinking, gaze, eye expressions, and audio-driven jaw movement; it runs in the twin/reference device or in Puppeteer for the lightweight servo firmware. There is no periodic AI motion polling or separate transcription/planner/TTS pipeline.
 
 This package lives at `src/puppeteer` in the sock-puppet monorepo. Requires Node.js 22.12+, npm, and an AudioWorklet-capable browser.
 
@@ -21,7 +21,9 @@ Open **http://127.0.0.1:8788**. Start the digital twin separately (`npm run dev:
 | `OPENAI_VOICE` / `OPENAI_LANGUAGE` | `marin` / `en`                   |
 | `PORT` / `ROBOT_WS_PORT`           | `8788` / `8787`                  |
 | `ROBOT_TRANSPORT`                  | `websocket`                      |
-| `SERIAL_PATH` / `SERIAL_BAUD`      | unset / `921600`                 |
+| `SERIAL_PATH` / `SERIAL_BAUD`      | unset / `115200`                 |
+| `SERIAL_PROTOCOL`                  | `servo` (`v2` for the emulator)  |
+| `SERVO_CALIBRATION_JSON`           | optional joint calibration       |
 | `TWIN_ORIGIN`                      | optional additional local origin |
 
 Old PLAN/STT/TTS model settings are unused. Change model/voice/language before starting a fresh session. Prompts live in `src/providers/live-prompts.ts`: a warm tutor for ages 10–12, concise explanations, one question at a time, and occasional expressive actions.
@@ -37,7 +39,39 @@ All services bind to loopback. The operator and twin connections enforce allowed
 - Manual JSON uses [robot protocol v2](../robot/PROTOCOL.md) and is available while stopped. The twin playground previews all expressions, sequences, and gestures offline.
 - The console shows creature status, action acceptance/rejection, audio backlog, waiting-for-audio status, commands pending, and API usage events. Acceptance is not completion.
 
-Audio playback begins immediately. Semantic cues accompany ongoing speech; tool-only movements need no audio. No word-level alignment is claimed. The worklet reports actual speaker PCM RMS in complete 20 ms windows. Device-side attack/release smoothing and calibrated servo limits control the jaw. A missing envelope closes it after 150 ms.
+Audio playback begins immediately. Semantic cues accompany ongoing speech; tool-only movements need no audio. No word-level alignment is claimed. The worklet reports actual speaker PCM RMS in complete 20 ms windows. Creature attack/release smoothing and calibrated servo limits control the jaw. A missing envelope closes it after 150 ms.
+
+## Physical servos
+
+Set `ROBOT_TRANSPORT=serial`, select the board's port, and use 115200 baud. The
+servo firmware maps motor 1 to base yaw, motor 2 to head pitch, and motor 3 to
+jaw opening. Puppeteer runs the shared Creature runtime locally and sends
+absolute, immediately retargetable commands such as `1,=,120,45`; queued `+`
+and `-` firmware commands remain available for manual testing.
+
+The default mapping is `servo angle = 90 + logical angle`. Override centers,
+directions, logical limits, and speeds with one JSON object:
+
+```sh
+SERVO_CALIBRATION_JSON='{"baseYaw":{"centerDeg":90,"sign":-1,"min":-60,"max":60},"headPitch":{"centerDeg":92,"sign":1},"jawOpen":{"centerDeg":88,"sign":1,"max":35,"maxSpeed":180}}'
+```
+
+Calibrate at conservative limits before running gestures. Centers plus both
+logical endpoints must remain within the servo's 0–180 degree range. Set
+`SERIAL_PROTOCOL=v2` and normally 921600 baud only when using the older
+protocol-v2 serial emulator/reference device.
+
+Physical mode currently has deliberate parity gaps:
+
+- Motor state is open-loop and estimated; hobby servos provide no measured
+  shaft position.
+- Firmware S-curve smoothing adds lag relative to the digital twin, and
+  integer-degree commands remove sub-degree motion.
+- Stop/disconnect holds the host's estimated pose and there is no firmware
+  heartbeat watchdog. Creature behavior also stops with Puppeteer.
+- Eye state remains visible in the virtual preview but is not sent to OLED
+  hardware yet.
+- Mechanical calibration can narrow ranges and clip gesture amplitudes.
 
 ## Verify
 
@@ -50,7 +84,7 @@ npm run test:pty
 npm run test:browser -w sock-puppet-puppeteer
 ```
 
-Tests use mocked Live events and require no API credentials. Browser tests use Chromium and real AudioWorklets. PTY tests exercise native `serialport` at 115200 baud against the emulator; the default physical-device rate is 921600.
+Tests use mocked Live events and require no API credentials. Browser tests use Chromium and real AudioWorklets. PTY tests exercise native `serialport` at 115200 baud against the protocol-v2 emulator.
 
 Optional **paid**, opt-in API connectivity check:
 
@@ -60,7 +94,7 @@ npx tsx src/puppeteer/scripts/live-smoke.ts
 npx tsx src/puppeteer/scripts/live-smoke.ts /absolute/path/test.pcm
 ```
 
-The default probe sends one second of silence. It never records the microphone or moves a connected robot. Live-room acceptance still requires your microphone/speaker placement: pauses, acknowledgments, interruption, “nod twice,” “look left,” and combined speech/expression requests. Board firmware/calibration remain deferred.
+The default probe sends one second of silence. It never records the microphone or moves a connected robot. Live-room acceptance still requires your microphone/speaker placement: pauses, acknowledgments, interruption, “nod twice,” “look left,” and combined speech/expression requests. Physical acceptance additionally requires checking each motor and sign at a narrow range, then idle, look/nod/shake, speech jaw, Stop motion, interrupt, disconnect, and reconnect.
 
 See [voice architecture](docs/voice-architecture.md) for event ownership, lifecycle, and synchronization limitations.
 

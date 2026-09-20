@@ -36,7 +36,7 @@ function App() {
   const [robotUrl, setRobotUrl] = useState("ws://127.0.0.1:8787");
   const [transport, setTransport] = useState("websocket"),
     [serialPath, setSerialPath] = useState(""),
-    [baud, setBaud] = useState(921600),
+    [baud, setBaud] = useState(115200),
     [ports, setPorts] = useState<string[]>([]);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]),
     [mic, setMic] = useState(""),

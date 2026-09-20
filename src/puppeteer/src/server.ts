@@ -9,6 +9,8 @@ import { z } from "zod";
 import { parseCommand } from "@sock-puppet/robot/protocol";
 import { WebSocketRobot } from "./robot/websocket";
 import { SerialRobot } from "./robot/serial";
+import { ServoSerialRobot } from "./robot/servo-serial";
+import { parseServoCalibration } from "./robot/servo-calibration";
 import type { RobotClient } from "./robot/types";
 import { OpenAILive } from "./providers/openai-live";
 import { Session, type ConsoleEvent } from "./harness/session";
@@ -44,15 +46,29 @@ const providers = new OpenAILive();
 function createRobot(
   kind: string,
   serialPath = process.env.SERIAL_PATH ?? "",
-  baud = Number(process.env.SERIAL_BAUD ?? 921600),
+  baud?: number,
 ) {
-  return kind === "serial"
-    ? new SerialRobot(serialPath, baud)
-    : new WebSocketRobot(robotPort, [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        ...(process.env.TWIN_ORIGIN ? [process.env.TWIN_ORIGIN] : []),
-      ]);
+  if (kind === "serial") {
+    const protocol = process.env.SERIAL_PROTOCOL ?? "servo";
+    if (protocol === "v2")
+      return new SerialRobot(
+        serialPath,
+        baud ?? Number(process.env.SERIAL_BAUD ?? 921600),
+      );
+    if (protocol !== "servo")
+      throw new Error("SERIAL_PROTOCOL must be servo or v2");
+    return new ServoSerialRobot(
+      serialPath,
+      baud ?? Number(process.env.SERIAL_BAUD ?? 115200),
+      undefined,
+      parseServoCalibration(),
+    );
+  }
+  return new WebSocketRobot(robotPort, [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    ...(process.env.TWIN_ORIGIN ? [process.env.TWIN_ORIGIN] : []),
+  ]);
 }
 robot = createRobot(transport);
 session = new Session(robot, providers, emit);
