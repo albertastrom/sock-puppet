@@ -73,6 +73,7 @@ export class Creature {
   private rms = 0;
   private speechAt = -Infinity;
   private speechSequence = -1;
+  private talking = false;
   private jaw = 0;
   private pose = { yaw: 0, pitch: 0 };
   constructor(
@@ -98,6 +99,7 @@ export class Creature {
     this.rms = 0;
     this.speechAt = -Infinity;
     this.speechSequence = -1;
+    this.talking = false;
     this.sequence = undefined;
     this.expressionUntil = 0;
   }
@@ -111,6 +113,14 @@ export class Creature {
         this.rms = update.rms;
         this.speechAt = this.time;
         this.speechSequence = update.sequence;
+      }
+      return;
+    }
+    if (update.kind === "talking") {
+      this.talking = update.on;
+      if (!update.on) {
+        this.rms = 0;
+        this.speechAt = -Infinity;
       }
       return;
     }
@@ -313,8 +323,9 @@ export class Creature {
           this.coupling.headDownSpanDeg,
         )
       : this.limits.jawOpen.max;
-    const target =
-      amplitude < 0.012
+    const target = this.talking
+      ? Math.min(jawCap, 8 + 10 * Math.abs(Math.sin(t / 90)))
+      : amplitude < 0.012
         ? 0
         : Math.min(35, jawCap, (amplitude - 0.012) * this.jawGain);
     this.jaw +=

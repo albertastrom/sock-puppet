@@ -51,7 +51,11 @@ function App() {
     >([]),
     [partial, setPartial] = useState(""),
     [logs, setLogs] = useState<string[]>([]);
-  const [metrics, setMetrics] = useState({ queuedMs: 0, underrun: false });
+  const [metrics, setMetrics] = useState({
+    queuedMs: 0,
+    underrun: false,
+    jawFallback: false,
+  });
   const [usage, setUsage] = useState<unknown>();
   const [manual, setManual] = useState(
     JSON.stringify(
@@ -112,6 +116,7 @@ function App() {
             if (!m.active) {
               void io.stop();
               setHeld(false);
+              setMetrics({ queuedMs: 0, underrun: false, jawFallback: false });
             }
             break;
           case "robot": {
@@ -148,7 +153,14 @@ function App() {
             });
             break;
           case "playback.metrics":
-            setMetrics(m);
+            setMetrics({
+              queuedMs: m.queuedMs,
+              underrun: m.underrun,
+              jawFallback: Boolean(m.jawFallback),
+            });
+            break;
+          case "audio.warning":
+            log(m.message);
             break;
           case "usage":
             setUsage(m.value);
@@ -249,6 +261,7 @@ function App() {
       <aside className="live-metrics">
         GPT Live 1 · Queue {Math.round(metrics.queuedMs)} ms{" "}
         {metrics.underrun ? "· waiting for audio" : ""}
+        {metrics.jawFallback ? " · jaw fallback" : ""}
         {state?.creature && (
           <span>
             {" "}
@@ -382,6 +395,10 @@ function App() {
             <div>
               <strong>{Math.round(metrics.queuedMs)} ms</strong>
               <span>Audio queued</span>
+            </div>
+            <div>
+              <strong>{metrics.jawFallback ? "canned" : "live RMS"}</strong>
+              <span>Speech jaw</span>
             </div>
             <div>
               <strong>{pending}</strong>

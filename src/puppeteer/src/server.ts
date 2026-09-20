@@ -157,6 +157,15 @@ const controls = z.discriminatedUnion("type", [
     underrun: z.boolean(),
   }),
   z.object({ type: z.literal("audio.error"), message: z.string().max(1000) }),
+  z.object({
+    type: z.literal("audio.backpressure"),
+    message: z.string().max(1000),
+    queuedMs: z.number().min(0).max(2000).optional(),
+  }),
+  z.object({
+    type: z.literal("audio.warning"),
+    message: z.string().max(1000),
+  }),
 ]);
 let switching = false;
 wss.on("connection", (socket) => {
@@ -225,6 +234,12 @@ wss.on("connection", (socket) => {
           break;
         case "audio.error":
           session.fault(msg.message);
+          break;
+        case "audio.backpressure":
+          session.backpressure(msg.message, msg.queuedMs);
+          break;
+        case "audio.warning":
+          emit({ type: "audio.warning", message: msg.message });
           break;
         case "command":
           if (session.active)

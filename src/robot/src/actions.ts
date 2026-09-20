@@ -35,6 +35,7 @@ export type CreatureUpdate =
       sequence?: Sequence | null;
     }
   | { kind: "speech"; rms: number; sequence: number }
+  | { kind: "talking"; on: boolean }
   | { kind: "stop"; closeJaw: boolean };
 export function record(raw: unknown): Record<string, unknown> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw))
@@ -115,6 +116,10 @@ export function parseCreature(raw: unknown): CreatureUpdate {
       if (!Number.isInteger(sequence)) throw new Error("Invalid sequence");
       return { kind: "speech", rms: bounded(a.rms, 0, 1, "RMS"), sequence };
     }
+    case "talking":
+      only(a, ["kind", "on"]);
+      if (typeof a.on !== "boolean") throw new Error("talking must be boolean");
+      return { kind: "talking", on: a.on };
     case "behavior": {
       only(a, ["kind", "behavior", "idleGain", "jawGain", "gaze", "sequence"]);
       if (

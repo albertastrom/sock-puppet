@@ -211,12 +211,33 @@ it("shrinks jaw opening when the head is fully down", () => {
   expect(max).toBeGreaterThan(0);
   expect(max).toBeLessThanOrEqual(16);
 });
+it("flaps a canned talking jaw then closes when talking stops", () => {
+  const c = new Creature();
+  c.accept({ kind: "behavior", behavior: "idle/listening" }, "i", initial());
+  c.accept({ kind: "talking", on: true }, "t", initial());
+  const samples: number[] = [];
+  for (let i = 0; i < 80; i++)
+    samples.push(c.tick(20)!.motors!.jawOpen!.angleDeg);
+  const max = Math.max(...samples);
+  expect(max).toBeGreaterThan(5);
+  expect(max).toBeLessThanOrEqual(30);
+  expect(max - Math.min(...samples)).toBeGreaterThan(2);
+  c.accept({ kind: "talking", on: false }, "off", initial());
+  let last = 1;
+  for (let i = 0; i < 60; i++) last = c.tick(20)!.motors!.jawOpen!.angleDeg;
+  expect(last).toBe(0);
+});
 it("validates complete updates atomically and honors narrower calibration", () => {
   expect(() => parseAct({ gesture: "nod", n: 1.5 })).toThrow();
   expect(() => parseAct({ gesture: "roll" })).toThrow();
   expect(() =>
     parseCreature({ kind: "speech", rms: NaN, sequence: 1 }),
   ).toThrow();
+  expect(() => parseCreature({ kind: "talking", on: "yes" })).toThrow();
+  expect(parseCreature({ kind: "talking", on: true })).toEqual({
+    kind: "talking",
+    on: true,
+  });
   const limits = structuredClone(config.motors) as unknown as Record<
     (typeof joints)[number],
     {

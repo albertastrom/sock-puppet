@@ -6,6 +6,7 @@ export type { Behavior };
 export class Scheduler {
   behavior: Behavior = "stopped";
   private sequence = 0;
+  private talking?: boolean;
   constructor(
     private robot: RobotClient,
     private onError: (message: string) => void = () => {},
@@ -41,8 +42,14 @@ export class Scheduler {
     if (this.behavior !== "stopped")
       this.submit({ kind: "speech", rms, sequence: ++this.sequence });
   }
+  setTalking(on: boolean) {
+    if (this.behavior === "stopped" || this.talking === on) return;
+    this.talking = on;
+    this.submit({ kind: "talking", on });
+  }
   stop(closeJaw = true) {
     this.behavior = "stopped";
+    this.talking = undefined;
     this.robot.cancelPending();
     this.submit({ kind: "stop", closeJaw });
   }
