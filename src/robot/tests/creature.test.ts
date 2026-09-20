@@ -26,7 +26,7 @@ it("runs deterministic seeded local life without network input", () => {
   }
   expect(closed && gaze).toBe(true);
 });
-it("idle motion is led by gaze more than head sway", () => {
+it("idle motion combines lively gaze with gentle random head turns", () => {
   const c = new Creature(42);
   c.accept(
     { kind: "behavior", behavior: "idle/listening" },
@@ -34,6 +34,7 @@ it("idle motion is led by gaze more than head sway", () => {
     initial(),
   );
   let maxYaw = 0;
+  let maxPitch = 0;
   let maxGaze = 0;
   for (let i = 0; i < 500; i++) {
     const u = c.tick(20);
@@ -42,10 +43,16 @@ it("idle motion is led by gaze more than head sway", () => {
       maxYaw,
       Math.abs(u.motors!.baseYaw!.angleDeg),
     );
+    maxPitch = Math.max(
+      maxPitch,
+      Math.abs(u.motors!.headPitch!.angleDeg),
+    );
     maxGaze = Math.max(maxGaze, Math.abs(u.eyes.left.x));
   }
   expect(maxGaze).toBeGreaterThan(0.15);
-  expect(maxGaze).toBeGreaterThan(maxYaw / 10);
+  expect(maxYaw).toBeGreaterThan(4);
+  expect(maxYaw).toBeLessThan(10);
+  expect(maxPitch).toBeGreaterThan(1.5);
 });
 it("nods with a stronger downward pitch and look aims in pitch", () => {
   const s = new Simulator();

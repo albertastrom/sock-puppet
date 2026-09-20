@@ -44,6 +44,9 @@ export class Creature {
   private nextGaze = 800;
   private gaze = { x: 0, y: 0, size: 1, convergence: 0 };
   private gazeTarget = { x: 0, y: 0 };
+  private nextIdleLook = 1200;
+  private idleLook = { yaw: 0, pitch: 0 };
+  private idleLookTarget = { yaw: 0, pitch: 0 };
   private fixedGaze = false;
   private sequence?: Sequence;
   private sequenceStart = 0;
@@ -210,6 +213,22 @@ export class Creature {
       this.gaze.convergence +=
         (convTarget - this.gaze.convergence) * (1 - Math.exp(-dt / 80));
     }
+    if (
+      !this.action &&
+      this.status.behavior === "idle/listening" &&
+      t >= this.nextIdleLook
+    ) {
+      this.idleLookTarget = {
+        yaw: (this.random() * 2 - 1) * 6,
+        pitch: (this.random() * 2 - 1) * 3.5,
+      };
+      this.nextIdleLook = t + 2200 + this.random() * 3800;
+    }
+    const idleLookSmoothing = 1 - Math.exp(-dt / 650);
+    this.idleLook.yaw +=
+      (this.idleLookTarget.yaw - this.idleLook.yaw) * idleLookSmoothing;
+    this.idleLook.pitch +=
+      (this.idleLookTarget.pitch - this.idleLook.pitch) * idleLookSmoothing;
     let expression = this.status.expression;
     if (this.sequence) {
       const frames = sequences[this.sequence];
@@ -227,13 +246,17 @@ export class Creature {
       : blink < 240
         ? Math.abs(blink - 120) / 120
         : 1;
+    const waiting = this.status.behavior === "idle/listening";
     let yaw =
-        this.restYaw + Math.sin(t / 5200) * 1.5 * this.idleGain,
+        this.restYaw +
+        (Math.sin(t / 5200) * 2 + (waiting ? this.idleLook.yaw : 0)) *
+          this.idleGain,
       pitch =
         this.restPitch +
         (this.status.behavior === "thinking"
           ? 4
-          : Math.sin(t / 4100) * 0.8) *
+          : Math.sin(t / 4100) * 1.2 +
+            (waiting ? this.idleLook.pitch : 0)) *
           this.idleGain;
     if (this.action) {
       const { value, start } = this.action;
