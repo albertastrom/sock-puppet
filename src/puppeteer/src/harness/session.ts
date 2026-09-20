@@ -3,6 +3,7 @@ import type { RobotClient } from "../robot/types";
 import type {
   LiveProvider,
   LiveConnection,
+  LiveConnectOptions,
   LiveEvent,
   ToolCall,
 } from "../providers/types";
@@ -39,7 +40,7 @@ export class Session {
         this.fault(event.message);
     });
   }
-  async start() {
+  async start(options?: LiveConnectOptions) {
     if (this.active) return;
     if (!this.robot.connected)
       throw new Error("Connect a robot and wait for its capabilities first");
@@ -59,6 +60,7 @@ export class Session {
         },
         (call) => this.tool(call, id),
         this.abort.signal,
+        options,
       );
       if (!this.active || id !== this.sessionGeneration) {
         await live.close();

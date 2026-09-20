@@ -13,6 +13,7 @@ import { ServoSerialRobot } from "./robot/servo-serial";
 import { parseServoCalibration } from "./robot/servo-calibration";
 import type { RobotClient } from "./robot/types";
 import { OpenAILive } from "./providers/openai-live";
+import { extraInstructionsForMode } from "./providers/live-prompts";
 import { Session, type ConsoleEvent } from "./harness/session";
 import {
   OPERATOR_PROTOCOL_VERSION,
@@ -124,7 +125,9 @@ const server = http.createServer(async (req, res) => {
   try {
     const base = path.join(root, "dist"),
       relative =
-        url.pathname === "/"
+        url.pathname === "/" ||
+        url.pathname === "/teacher" ||
+        url.pathname === "/teacher/"
           ? "index.html"
           : decodeURIComponent(url.pathname).slice(1),
       file = path.resolve(base, relative);
@@ -153,7 +156,11 @@ const wss = new WebSocketServer({
   verifyClient: ({ origin }: { origin: string }) => origins.includes(origin),
 });
 const controls = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("start") }),
+  z.object({
+    type: z.literal("start"),
+    mode: z.enum(["operator", "classroom"]).optional(),
+    notes: z.string().max(8000).optional(),
+  }),
   z.object({ type: z.literal("stop") }),
   z.object({ type: z.literal("motion.stop") }),
   z.object({ type: z.literal("interrupt") }),
@@ -225,7 +232,9 @@ wss.on("connection", (socket) => {
       if (switching) throw new Error("Transport switch in progress");
       switch (msg.type) {
         case "start":
-          await session.start();
+          await session.start({
+            extraInstructions: extraInstructionsForMode(msg.mode, msg.notes),
+          });
           break;
         case "history.clear":
           session.resetHistory();
@@ -326,7 +335,7 @@ await new Promise<void>((resolve, reject) => {
   });
 });
 console.log(
-  `Puppeteer console http://127.0.0.1:${port} · twin ws://127.0.0.1:${robotPort}`,
+  `Puppeteer console http://127.0.0.1:${port} · teacher http://127.0.0.1:${port}/teacher · twin ws://127.0.0.1:${robotPort}`,
 );
 async function shutdown() {
   await session.dispose();

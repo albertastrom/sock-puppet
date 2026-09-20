@@ -36,6 +36,7 @@ export class OpenAILive implements LiveProvider {
     onEvent: (event: LiveEvent) => void,
     onTool: (call: ToolCall) => Promise<unknown>,
     signal?: AbortSignal,
+    options?: { extraInstructions?: string },
   ): Promise<LiveConnection> {
     const key = apiKey(this.env);
     return new Promise((resolve, reject) => {
@@ -122,7 +123,11 @@ export class OpenAILive implements LiveProvider {
             session: {
               model: this.env.OPENAI_LIVE_MODEL ?? "gpt-live-1",
               instructions:
-                voicePrompt + `\nSpeak in ${this.env.OPENAI_LANGUAGE ?? "en"}.`,
+                voicePrompt +
+                (options?.extraInstructions
+                  ? `\n${options.extraInstructions}`
+                  : "") +
+                `\nSpeak in ${this.env.OPENAI_LANGUAGE ?? "en"}.`,
               store: false,
               audio: {
                 format: { type: "audio/pcm", rate: 24000 },

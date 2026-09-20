@@ -22,10 +22,12 @@ export interface LiveConnection {
   interrupt(): void;
   close(): Promise<void>;
 }
+export type LiveConnectOptions = { extraInstructions?: string };
 export interface LiveProvider {
   connect(
     onEvent: (event: LiveEvent) => void,
     onTool: (call: ToolCall) => Promise<unknown>,
     signal?: AbortSignal,
+    options?: LiveConnectOptions,
   ): Promise<LiveConnection>;
 }

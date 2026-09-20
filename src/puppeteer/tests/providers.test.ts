@@ -20,7 +20,7 @@ class Socket extends EventEmitter {
   }
 }
 afterEach(() => vi.useRealTimers());
-async function setup() {
+async function setup(extra?: { extraInstructions?: string }) {
   const socket = new Socket(),
     events: LiveEvent[] = [],
     tool = vi.fn(async () => ({ status: "accepted" }));
@@ -29,7 +29,12 @@ async function setup() {
     url = u;
     return socket as unknown as WebSocket;
   });
-  const pending = provider.connect((e) => events.push(e), tool);
+  const pending = provider.connect(
+    (e) => events.push(e),
+    tool,
+    undefined,
+    extra,
+  );
   socket.emit("open");
   expect(url).toBe("wss://api.openai.com/v1/live/sessions");
   socket.event({ type: "session.started", session: { id: "s" } });
@@ -171,4 +176,9 @@ it("reports missing finalization and closes after a bounded wait", async () => {
     type: "usage",
     value: { finalization: "incomplete" },
   });
+});
+it("appends classroom extra instructions on Live session.start", async () => {
+  const h = await setup({ extraInstructions: "Maya needs wait time" });
+  expect(h.socket.sent[0].session.instructions).toContain("Maya needs wait time");
+  await h.end();
 });
