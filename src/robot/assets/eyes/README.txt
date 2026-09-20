@@ -9,3 +9,4 @@ White (1) = lit pixel; black (0) = off
 .bmp  — same image as a 1bpp BMP for visual inspection
 
 Exported 66 panels (33 expressions × 2 sides).
+Regenerate with: npm run export:eyes -w @sock-puppet/robot
