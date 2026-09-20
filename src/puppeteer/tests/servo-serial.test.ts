@@ -209,6 +209,21 @@ it("runs Creature expressions locally and drives both OLED panels", async () => 
     expect(lines).toContain("eye,0,curious");
     expect(lines).toContain("eye,1,curious");
   });
+  await robot.applyCommand({
+    version: 2,
+    type: "command",
+    id: "dance",
+    creature: {
+      kind: "move",
+      move: { id: "dance", n: 1 },
+      ttlMs: 20000,
+    },
+  });
+  await vi.waitFor(() => {
+    expect(lines.some((line) => /^eye,0,(joy|happy|love|square|focus|glitch)$/.test(line))).toBe(
+      true,
+    );
+  });
 });
 
 it("does not resend an unchanged expression", async () => {

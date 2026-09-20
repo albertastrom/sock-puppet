@@ -67,8 +67,10 @@ false-interruption measurements are claimed. Before deployment:
 
 1. Flash the board and check motors 1/2/3, centers, and signs at conservative
    logical limits.
-2. Exercise idle, look, nod, shake, speech jaw, named OLED expressions, Stop
-   motion, interrupt, disconnect, and reconnect.
+2. Exercise idle, look, nod, shake, dance extremes, speech jaw, named OLED
+   expressions including dance glyphs, Stop motion, interrupt, disconnect, and
+   reconnect. Also try “do your dance,” “surprised face,” and interruption
+   while a routine is running.
 3. Measure the extra firmware S-curve lag and tune speed/limits without assuming
    the open-loop estimated state is measured position.
 4. Test pauses, acknowledgments, overlapping speech, explicit

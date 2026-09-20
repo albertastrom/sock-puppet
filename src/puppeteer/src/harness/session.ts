@@ -1,4 +1,4 @@
-import { parseAct } from "@sock-puppet/robot/actions";
+import { parsePuppetAct } from "@sock-puppet/robot/actions";
 import type { RobotClient } from "../robot/types";
 import type {
   LiveProvider,
@@ -138,13 +138,28 @@ export class Session {
     const epoch = this.actionEpoch;
     if (!this.active || sessionId !== this.sessionGeneration || this.blocked)
       return { status: "rejected", message: "Canceled or interrupted" };
-    const action = parseAct(call.arguments);
-    this.emit({ type: "action", id: call.callId, status: "requested", action });
-    const result = await this.scheduler.act(action, call.callId);
+    const work = parsePuppetAct(call.arguments);
+    this.emit({
+      type: "action",
+      id: call.callId,
+      status: "requested",
+      action: work.kind === "act" ? work.action : undefined,
+      move: work.kind === "move" ? work.move : undefined,
+    });
+    const result =
+      work.kind === "move"
+        ? await this.scheduler.move(work.move, call.callId)
+        : await this.scheduler.act(work.action, call.callId);
     if (epoch !== this.actionEpoch || !this.active)
       return { status: "canceled" };
     const status = result.type === "ack" ? "accepted" : "rejected";
-    this.emit({ type: "action", id: call.callId, status, action });
+    this.emit({
+      type: "action",
+      id: call.callId,
+      status,
+      action: work.kind === "act" ? work.action : undefined,
+      move: work.kind === "move" ? work.move : undefined,
+    });
     return {
       status,
       ...(result.type === "error" ? { message: result.message } : {}),

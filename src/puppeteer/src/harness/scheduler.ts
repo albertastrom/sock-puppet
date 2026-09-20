@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RobotClient } from "../robot/types";
-import type { Act, Behavior, CreatureUpdate } from "@sock-puppet/robot/actions";
+import type { Act, Behavior, CreatureUpdate, Move } from "@sock-puppet/robot/actions";
+import { moveTtlMs } from "@sock-puppet/robot/move-catalog";
 export type { Behavior };
 /** Host sends intent/envelopes; the device runtime owns interpolation and idle animation. */
 export class Scheduler {
@@ -37,6 +38,9 @@ export class Scheduler {
   }
   async act(action: Act, id: string) {
     return this.dispatch({ kind: "act", action, ttlMs: 10000 }, id);
+  }
+  async move(move: Move, id: string) {
+    return this.dispatch({ kind: "move", move, ttlMs: moveTtlMs(move) }, id);
   }
   playback(rms: number) {
     if (this.behavior !== "stopped")

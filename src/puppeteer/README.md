@@ -1,6 +1,6 @@
 # Puppeteer
 
-GPT Live 1 voice controller for a three-servo sock puppet. Live hears and speaks continuously; managed Responses delegation selects the single `puppet_act` tool. A shared runtime supplies idle sway, blinking, gaze, eye expressions, and audio-driven jaw movement; it runs in the twin/reference device or in Puppeteer for the lightweight servo firmware. There is no periodic AI motion polling or separate transcription/planner/TTS pipeline.
+GPT Live 1 voice controller for a three-servo sock puppet. Live hears and speaks continuously; managed Responses delegation selects the single `puppet_act` tool from the shared move catalog. A shared runtime supplies idle sway, blinking, gaze, eye expressions, named poses, special routines such as dance, and audio-driven jaw movement; it runs in the twin/reference device or in Puppeteer for the lightweight servo firmware. There is no periodic AI motion polling or separate transcription/planner/TTS pipeline.
 
 This package lives at `src/puppeteer` in the sock-puppet monorepo. Requires Node.js 22.12+, npm, and an AudioWorklet-capable browser.
 
@@ -36,7 +36,7 @@ All services bind to loopback. The operator and twin connections enforce allowed
 - Live handles ordinary overlapping speech. Microphone volume does not automatically cancel the response, so acknowledgments can remain natural.
 - Interrupt clears queued playback and actions immediately, tells Live to listen, and drops output until 300 ms of quiet is detected. This recovery threshold is configurable in code and needs testing with actual speakers. Stop closes the session; Stop motion also freezes all joints rather than closing the jaw.
 - Transport loss or switching stops voice and movement. Reconnect requires a new handshake and explicit Start; stale commands never replay. The console also refuses Start if it does not match the controller's operator protocol version.
-- Manual JSON uses [robot protocol v2](../robot/PROTOCOL.md) and is available while stopped. The twin playground previews all expressions, sequences, and gestures offline.
+- Manual JSON uses [robot protocol v2](../robot/PROTOCOL.md) and is available while stopped. The twin playground previews catalog idle profiles, poses, gestures, expressions, sequences, and special routines offline.
 - The console shows creature status, action acceptance/rejection, audio backlog, waiting-for-audio status, commands pending, and API usage events. Live may burst PCM faster than speaking speed; a 30-second ring buffer plays it continuously at 24 kHz. Reaching that bound faults the session instead of deleting speech. Acceptance is not completion.
 
 Audio playback begins immediately. Semantic cues accompany ongoing speech; tool-only movements need no audio. No word-level alignment is claimed. The worklet reports actual speaker PCM RMS in complete 20 ms windows. Creature attack/release smoothing and calibrated servo limits control the jaw. A missing envelope closes it after 150 ms.
@@ -107,7 +107,7 @@ npx tsx src/puppeteer/scripts/live-smoke.ts
 npx tsx src/puppeteer/scripts/live-smoke.ts /absolute/path/test.pcm
 ```
 
-The default probe sends one second of silence. It never records the microphone or moves a connected robot. Live-room acceptance still requires your microphone/speaker placement: pauses, acknowledgments, interruption, “nod twice,” “look left,” and combined speech/expression requests. Physical acceptance additionally requires checking each motor and sign at a narrow range, then idle, look/nod/shake, speech jaw, named OLED expressions, Stop motion, interrupt, disconnect, and reconnect.
+The default probe sends one second of silence. It never records the microphone or moves a connected robot. Live-room acceptance still requires your microphone/speaker placement: pauses, acknowledgments, interruption, “nod twice,” “look left,” “surprised face,” “do your dance,” and combined speech/expression requests. Physical acceptance additionally requires checking each motor and sign at a narrow range, then idle, look/nod/shake, dance extremes, speech jaw, named OLED expressions, Stop motion, interrupt, disconnect, and reconnect.
 
 See [voice architecture](docs/voice-architecture.md) for event ownership, lifecycle, and synchronization limitations.
 

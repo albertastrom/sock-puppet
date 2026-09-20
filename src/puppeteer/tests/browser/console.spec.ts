@@ -381,12 +381,15 @@ test("keeps console chrome locked when session data arrives", async ({
       event: {
         type: "state",
         state: {
-          creature: {
+            creature: {
             behavior: "idle/listening",
             gesture: "celebrate",
             expression: "happy",
             actionId: "act-1",
             actionStatus: "running",
+            moveId: "celebrate",
+            moveProgress: 0.4,
+            movePhase: null,
           },
           motors: {
             baseYaw: motor(12.5, true),

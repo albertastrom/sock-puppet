@@ -41,22 +41,44 @@ it("starts idle without a model action and routes PCM continuously", async () =>
   h.session.playback(999, 40, 1, 0, false);
   expect(h.robot.commands.at(-1)?.creature).toMatchObject({ rms: 0.2 });
 });
-it("executes tool-only gestures and rejects malformed actions", async () => {
+it("executes named catalog moves and still accepts legacy gesture tools", async () => {
   const h = await setup(),
     call = {
       delegationId: "d",
       responseId: "r",
       callId: "c",
       name: "puppet_act",
-      arguments: { gesture: "nod", n: 2 },
+      arguments: { move: "nod", n: 2 },
     };
   expect(await h.tool(call)).toMatchObject({ status: "accepted" });
   await expect(
-    h.tool({ ...call, arguments: { gesture: "nod", n: 90 } }),
+    h.tool({ ...call, arguments: { move: "nod", n: 90 } }),
   ).rejects.toThrow();
   expect(h.robot.commands.at(-1)?.creature).toMatchObject({
+    kind: "move",
+    move: { id: "nod", n: 2 },
+  });
+  expect(
+    await h.tool({
+      ...call,
+      callId: "legacy",
+      arguments: { gesture: "look", yaw: 12 },
+    }),
+  ).toMatchObject({ status: "accepted" });
+  expect(h.robot.commands.at(-1)?.creature).toMatchObject({
     kind: "act",
-    action: { gesture: "nod", n: 2 },
+    action: { gesture: "look", yaw: 12 },
+  });
+  expect(
+    await h.tool({
+      ...call,
+      callId: "dance",
+      arguments: { move: "dance" },
+    }),
+  ).toMatchObject({ status: "accepted" });
+  expect(h.robot.commands.at(-1)?.creature).toMatchObject({
+    kind: "move",
+    move: { id: "dance", n: 1 },
   });
 });
 it("interrupts, drops old audio and reopens after quiet without replay", async () => {

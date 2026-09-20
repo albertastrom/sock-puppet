@@ -58,6 +58,9 @@ const creatureSchema = z
       "canceled",
       "expired",
     ]),
+    moveId: z.string().max(128).nullable(),
+    moveProgress: z.number().finite().min(0).max(1),
+    movePhase: z.number().int().min(0).nullable(),
   })
   .strict();
 export function validateState(
@@ -153,8 +156,11 @@ export function validateForRobot(
 ): Command {
   const parsed = parseCommand(command);
   if (!capabilities) throw new Error("Robot has not completed handshake");
-  if (parsed.creature?.kind === "act") {
-    const action = parsed.creature.action;
+  if (parsed.creature?.kind === "act" || parsed.creature?.kind === "move") {
+    const action =
+      parsed.creature.kind === "act"
+        ? parsed.creature.action
+        : parsed.creature.move;
     if (action.yaw !== undefined) {
       const yaw = action.yaw,
         limit = capabilities.motors.baseYaw;

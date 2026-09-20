@@ -113,6 +113,35 @@ it("rejects pitch outside narrowed head calibration", () => {
   expect(
     ok.creature?.kind === "act" ? ok.creature.action.pitch : undefined,
   ).toBe(6);
+  expect(() =>
+    validateForRobot(
+      {
+        version: 2,
+        type: "command",
+        id: "move-high",
+        creature: {
+          kind: "move",
+          move: { id: "look", n: 1, pitch: 15 },
+          ttlMs: 5000,
+        },
+      },
+      caps,
+    ),
+  ).toThrow();
+  const dance = validateForRobot(
+    {
+      version: 2,
+      type: "command",
+      id: "dance",
+      creature: {
+        kind: "move",
+        move: { id: "dance", n: 1 },
+        ttlMs: 20000,
+      },
+    },
+    caps,
+  );
+  expect(dance.creature?.kind).toBe("move");
 });
 it("rejects incompatible displays, excessive device limits and malformed telemetry", () => {
   const original = capabilitiesMessage(new Simulator().getState());

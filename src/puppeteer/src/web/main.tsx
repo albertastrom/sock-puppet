@@ -177,7 +177,7 @@ function App() {
             setUsage(m.value);
             break;
           case "action":
-            log(`${m.status}: ${m.action?.gesture ?? "action"}`);
+            log(`${m.status}: ${String(m.move?.id ?? m.action?.gesture ?? "action")}`);
             break;
           case "transcript":
             if (typeof m.text !== "string") break;
@@ -283,7 +283,11 @@ function App() {
     node.scrollTop = node.scrollHeight;
   }, [transcripts, partial]);
   const creatureLine = state?.creature
-    ? `${state.creature.behavior} · ${state.creature.gesture} · ${state.creature.expression} · ${state.creature.actionStatus}`
+    ? `${state.creature.behavior} · ${state.creature.moveId ?? state.creature.gesture} · ${state.creature.expression} · ${state.creature.actionStatus}${
+        state.creature.actionStatus === "running"
+          ? ` · ${Math.round(state.creature.moveProgress * 100)}%`
+          : ""
+      }`
     : "—";
   return (
     <div className="relative flex h-dvh min-h-[640px] flex-col overflow-hidden bg-canvas text-ink max-[750px]:h-auto max-[750px]:overflow-visible">

@@ -3,7 +3,7 @@ import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { OpenAILive } from "../src/providers/openai-live";
 import { Simulator } from "@sock-puppet/robot/simulator";
-import { parseAct } from "@sock-puppet/robot/actions";
+import { parsePuppetAct } from "@sock-puppet/robot/actions";
 const provider = new OpenAILive(),
   simulator = new Simulator();
 let outputBytes = 0,
@@ -20,14 +20,14 @@ try {
     },
     async (call) => {
       tools++;
-      const action = parseAct(call.arguments);
+      const work = parsePuppetAct(call.arguments);
       const result = simulator.applyCommand({
         version: 2,
         type: "command",
         id: call.callId,
-        creature: { kind: "act", action, ttlMs: 10000 },
+        creature: work,
       });
-      console.log("Simulated action:", JSON.stringify(action));
+      console.log("Simulated action:", JSON.stringify(work));
       return { status: result.type === "ack" ? "accepted" : "rejected" };
     },
   );

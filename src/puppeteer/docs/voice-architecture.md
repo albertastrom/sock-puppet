@@ -21,7 +21,7 @@ Use `wss://api.openai.com/v1/live/sessions`, `session.start`, then wait for `ses
 
 Tool definitions belong under `delegation.responses.tools`. Read completed function items from nested `response.output_item.done`, preserving delegation/response/call IDs. Return `response.item.create` function output and continue with `response.create` only after required results and backend completion. Never treat backend completion as audio completion. The host validates every action and deduplicates tool calls. A new delegation supersedes unfinished expressive work. [Delegation](https://developers.openai.com/api/docs/guides/live-delegation)
 
-The voice prompt controls tutoring style and when to delegate; the backend prompt describes gesture semantics. Local idle animation does not call a model. Tool requests older than ten seconds are rejected, and transport queue residence reduces the action lifetime. Action execution uses current calibrated limits.
+The voice prompt controls tutoring style and when to delegate; the backend prompt is generated from the shared move catalog. Local idle animation does not call a model. Tool requests older than ten seconds are rejected, and transport queue residence reduces the action lifetime. Action execution uses current calibrated limits. Named routines such as dance are one atomic device action.
 
 ## Playback and interruption
 

@@ -195,7 +195,7 @@ export abstract class BaseRobot implements RobotClient {
         if (next) this.send(next);
         return;
       }
-      if (p.command.creature?.kind === "act")
+      if (p.command.creature?.kind === "act" || p.command.creature?.kind === "move")
         p.command = {
           ...p.command,
           creature: { ...p.command.creature, ttlMs: remaining },
