@@ -1,10 +1,14 @@
 // Three-servo slave for the Arduino UNO Q (sketch runs on the STM32U585).
 //
 // The master sends commands of the form  <motor>,<direction>,<angle>[,<speed>]
-//   1,+,180       motor 1, positive direction, 180 degrees
-//   2,-,30        motor 2, negative direction, 30 degrees
-//   3,+,90,45     motor 3, positive, 90 degrees, at 45 degrees per second
-//   1,=,120,45    motor 1, immediately retarget to absolute servo angle 120
+//   1,+,20        motor 1, relative +20 degrees from the current target
+//   2,-,30        motor 2, relative -30 degrees
+//   3,=,170,45    motor 3, immediately retarget to absolute servo angle 170
+//   1,=,90,45     motor 1, immediately retarget to absolute servo angle 90
+// Homes: base 90, head 120, jaw 180 (closed). Base +deg is counterclockwise
+// from above; −deg is clockwise. Jaw may open 30° from home
+// (PWM 150–180). When the head is fully down, that opening is reduced to 15°
+// (PWM 165) so the mouth cannot press into the body frame.
 // The speed term is optional (DEFAULT_SPEED when left off), capped at SPEED_LIMIT.
 // Commands are separated by a newline or a space, so a whole block can be
 // pasted at once:  1,-,40 2,+,30 3,+,60   (no spaces inside a command)
@@ -105,6 +109,24 @@ class SCurveMotor {
     if (out_ > hi_) out_ = hi_;
   }
 
+  void setLow(float lo) {
+    if (lo > hi_) lo = hi_;
+    lo_ = lo;
+    if (target_ < lo_) target_ = lo_;
+    if (plan_ < lo_) {
+      plan_ = lo_;
+      vel_ = 0;
+    }
+    if (out_ < lo_) out_ = lo_;
+    for (int i = 0; i < n_; i++) {
+      if (hist_[i] < lo_) hist_[i] = lo_;
+      if (hist2_[i] < lo_) hist2_[i] = lo_;
+    }
+  }
+
+  float target() const { return target_; }
+  float output() const { return out_; }
+
   // Position to send to the servo, rounded to a whole degree.
   int angle() const { return (int)(out_ + 0.5f); }
 
@@ -133,9 +155,25 @@ static const long BAUD = 115200;
 #define QUEUE_MOVES 1       // 1: a motor's commands play one after another, each finishing before the next.
                             // 0: commands add up and the motor heads straight for the running total.
 
-static const float HOME_DEG = 90;    // Where every servo is put at power-up
-static const float MIN_DEG = 0;
-static const float MAX_DEG = 180;
+// Absolute PWM homes and hard stops. Jaw 150–180 is the full 30° opening.
+// Looking down (head PWM at or below 75, i.e. logical −45 from home 120)
+// raises the jaw floor toward 165. Head may use the full 0–180 travel.
+static const float HOME_DEG[NUM_MOTORS] = {90, 120, 180};
+static const float MIN_DEG[NUM_MOTORS] = {0, 0, 150};
+static const float MAX_DEG[NUM_MOTORS] = {180, 180, 180};
+static const int HEAD_MOTOR = 1;
+static const int JAW_MOTOR = 2;
+static const float HEAD_DOWN_PWM = 75;       // Fully down (home 120 − 45)
+static const float HEAD_COUPLE_START_PWM = 85;  // Start closing extra jaw
+static const float JAW_FLOOR_OPEN = 150;     // 30° from home
+static const float JAW_FLOOR_HEAD_DOWN = 165;  // 15° from home
+
+static float jawLowForHead(float headPwm) {
+  if (headPwm >= HEAD_COUPLE_START_PWM) return JAW_FLOOR_OPEN;
+  if (headPwm <= HEAD_DOWN_PWM) return JAW_FLOOR_HEAD_DOWN;
+  float t = (HEAD_COUPLE_START_PWM - headPwm) / (HEAD_COUPLE_START_PWM - HEAD_DOWN_PWM);
+  return JAW_FLOOR_OPEN + (JAW_FLOOR_HEAD_DOWN - JAW_FLOOR_OPEN) * t;
+}
 
 static const float DEFAULT_SPEED = 120;  // deg/s, used when a command has no speed term
 static const float SPEED_LIMIT = 300;    // deg/s, fastest a command may ask for
@@ -203,6 +241,10 @@ static const char *applyCommand(const char *p) {
   }
   if (*p != '\0') return "ERR format";
 
+  if (dir == '=' &&
+      (angle < (int)MIN_DEG[motor] || angle > (int)MAX_DEG[motor]))
+    return "ERR range";
+
   int delta = dir == '+' ? angle : -angle;
 #if QUEUE_MOVES
   MoveQueue &q = queues[motor];
@@ -258,7 +300,7 @@ void setup() {
 
   int smoothTicks = (int)(SMOOTH_MS * 1000UL / TICK_US);
   for (int i = 0; i < NUM_MOTORS; i++) {
-    motors[i].begin(HOME_DEG, MIN_DEG, MAX_DEG, ACCEL_TIME_S, smoothTicks);
+    motors[i].begin(HOME_DEG[i], MIN_DEG[i], MAX_DEG[i], ACCEL_TIME_S, smoothTicks);
     servos[i].attach(SERVO_PINS[i]);
     lastWritten[i] = motors[i].angle();
     servos[i].write(lastWritten[i]);
@@ -291,6 +333,8 @@ void loop() {
     if ((uint32_t)(now - lastTick) >= 4 * TICK_US) lastTick = now;  // fell behind: resync, don't burst
 
     const float dt = TICK_US / 1e6f;
+    float head = fminf(motors[HEAD_MOTOR].target(), motors[HEAD_MOTOR].output());
+    motors[JAW_MOTOR].setLow(jawLowForHead(head));
     for (int i = 0; i < NUM_MOTORS; i++) {
 #if QUEUE_MOVES
       // Start the next queued move once the previous one has fully finished.
