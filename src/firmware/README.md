@@ -1,6 +1,7 @@
 # Servo firmware
 
-This Arduino UNO Q sketch is the low-level driver for three hobby servos:
+This Arduino UNO Q sketch is the low-level driver for three hobby servos and
+the two OLED eyes:
 
 - motor 1: base yaw, pin 9, home **90°**, travel 0–180.
   Positive angles from home are counterclockwise; negative are clockwise.
@@ -28,20 +29,54 @@ command replies `OK`; malformed input replies `ERR ...`; startup prints
 3,=,170,60   clear motor 3's queue and immediately retarget it to 170 degrees
 ```
 
+## Eyes
+
+`eyes.h` is the eye driver, lifted from the standalone `oled-display-uno`
+sketch so motors and eyes run from one program. Both SH1106 panels keep the
+stock address 0x3C and get a bus each: left on `Wire` (D20/D21), right on
+`Wire2` (D18/D19, a.k.a. A4/A5). `setup()` probes both, prints
+`EYES left ...: ok  right ...: ok`, and draws the `boot` frame on each.
+
+Eyes take the same serial commands as the motors, for driving them by hand
+while debugging:
+
+```text
+eye,0,angry      draw "angry" on the left eye
+eye,1,love       draw "love" on the right eye
+eye,?            list every expression name in this build
+```
+
+Eye index 0 is left, 1 is right; anything else replies `ERR eye`. Expression
+names come from `logo.h` and an unknown one replies `ERR expression`, leaving
+the panel on its previous frame. Drawing a frame blocks for about 20 ms while
+the 1 KB buffer goes out over I2C, so the 200 Hz motion loop skips a few ticks
+on each eye change and then resyncs.
+
+`logo.h` is generated from the eye art and copied in:
+
+```sh
+python3 ../oled-display-uno/scripts/gen_logo_header.py
+cp ../oled-display-uno/logo.h logo.h
+```
+
+Set `ENABLE_EYES` to 0 in `main.c` to build the servo driver on its own,
+without the eye commands or the U8g2 dependency.
+
 The absolute `=` form is intended for Puppeteer's continuously changing
 Creature targets. Relative `+` and `-` moves retain their per-motor ordered
 queues for manual testing. Speeds are clamped to 1–800 degrees/second.
 
 The driver is open-loop: it reports command acceptance, not measured servo
-position. It has no heartbeat watchdog, OLED eye support, or protocol-v2 JSON
-runtime. Puppeteer supplies Creature behavior, estimated telemetry, calibration,
-and virtual eye state for this hardware profile.
+position. It has no heartbeat watchdog or protocol-v2 JSON runtime, and eye
+frames are drawn only when asked - there is no blink or idle animation here.
+Puppeteer supplies Creature behavior, estimated telemetry, and calibration for
+this hardware profile.
 
 ## PlatformIO
 
 The included `platformio.ini` targets the `uno_q` board on the `arduinoq`
-platform. `main.cpp` is only a PlatformIO wrapper that compiles App Lab's
-`main.c` sketch as C++.
+platform, and pulls in U8g2 for the eyes. `main.cpp` is only a PlatformIO
+wrapper that compiles App Lab's `main.c` sketch as C++.
 
 The Arduino Q PlatformIO platform builds only on Linux (`linux_aarch64` or
 `linux_x86_64`) because the MCU toolchain is supplied for those hosts. On the

@@ -18,10 +18,35 @@
 // retarget for real-time controllers; it clears that motor's relative queue.
 // Different motors move at the same time, and nothing blocks (see QUEUE_MOVES to
 // add relative commands up instead).
+//
+// The same ports also drive the two OLED eyes, for debugging by hand:
+//   eye,0,angry   left eye shows the "angry" frame
+//   eye,1,love    right eye shows the "love" frame
+//   eye,?         list every expression name the build knows
+// Names come from logo.h (see eyes.h); an unknown one replies "ERR expression".
+//
 // Malformed commands get an "ERR ..." reply on the port they came from.
 
 #include <Arduino_HardwareServo.h>
 #include <math.h>
+#include <string.h>
+
+#define ENABLE_EYES 1  // 0: build without the OLED eyes (drops the U8g2 dependency)
+#if ENABLE_EYES
+#include "eyes.h"
+#endif
+
+// One port's in-progress command. This lives up here, ahead of the first
+// function definition, because that is where the Arduino IDE injects its
+// generated prototypes - including feedByte()'s, whose signature names this
+// type. Declared any later, the sketch fails with "'LineBuffer' was not
+// declared in this scope".
+static const uint8_t CMD_LINE_MAX = 32;
+struct LineBuffer {
+  char text[CMD_LINE_MAX];
+  uint8_t len = 0;
+  bool overflow = false;
+};
 
 // ---- S-curve motion for one servo ----
 //
@@ -187,12 +212,6 @@ SCurveMotor motors[NUM_MOTORS];
 int lastWritten[NUM_MOTORS];
 uint32_t lastTick;
 
-static const uint8_t CMD_LINE_MAX = 32;
-struct LineBuffer {
-  char text[CMD_LINE_MAX];
-  uint8_t len = 0;
-  bool overflow = false;
-};
 LineBuffer serial1Line;
 #if ACCEPT_ON_SERIAL
 LineBuffer serialLine;
@@ -209,8 +228,33 @@ struct MoveQueue {
 MoveQueue queues[NUM_MOTORS];
 
 // ---- Command parsing ----
+
+#if ENABLE_EYES
+// "eye,<0|1>,<expression>" draws one expression on one eye (0 left, 1 right).
+// "eye,?" prints the list of expression names instead.
+static const char *applyEyeCommand(const char *p, Print &out) {
+  if (strncmp(p, "eye,", 4) != 0) return "ERR format";
+  p += 4;
+
+  if (p[0] == '?' && p[1] == '\0') {
+    printEyeNames(out);
+    return NULL;
+  }
+
+  if (*p != '0' && *p != '1') return "ERR eye";
+  Eye eye = *p++ == '0' ? EYE_LEFT : EYE_RIGHT;
+  if (*p++ != ',') return "ERR format";
+  if (*p == '\0') return "ERR expression";
+  if (!setEye(eye, p)) return "ERR expression";
+  return NULL;
+}
+#endif
+
 // Returns NULL on success, otherwise an error message.
-static const char *applyCommand(const char *p) {
+static const char *applyCommand(const char *p, Print &out) {
+#if ENABLE_EYES
+  if (*p == 'e') return applyEyeCommand(p, out);
+#endif
   if (*p < '1' || *p > '0' + NUM_MOTORS) return "ERR motor";
   int motor = *p++ - '1';
 
@@ -269,8 +313,9 @@ static const char *applyCommand(const char *p) {
 // Feed one received byte. A newline, carriage return, space or tab ends the
 // current command and runs it; empty commands are ignored. Returns a reply to
 // send back ("ERR ..." if the command was bad, "OK" if accepted and REPLY_OK
-// is on), or NULL when nothing needs saying.
-static const char *feedByte(LineBuffer &line, char c) {
+// is on), or NULL when nothing needs saying. `out` is the port the byte came
+// from, for commands that print more than a one-word reply.
+static const char *feedByte(LineBuffer &line, char c, Print &out) {
   if (c != '\n' && c != '\r' && c != ' ' && c != '\t') {
     if (line.len < CMD_LINE_MAX - 1) line.text[line.len++] = c;
     else line.overflow = true;
@@ -281,7 +326,7 @@ static const char *feedByte(LineBuffer &line, char c) {
     reply = "ERR too long";
   } else if (line.len > 0) {
     line.text[line.len] = '\0';
-    reply = applyCommand(line.text);
+    reply = applyCommand(line.text, out);
 #if REPLY_OK
     if (!reply) reply = "OK";
 #endif
@@ -296,6 +341,9 @@ void setup() {
   Serial1.begin(BAUD);
 #if ACCEPT_ON_SERIAL
   Serial.begin(BAUD);
+#endif
+#if ENABLE_EYES
+  eyesBegin();
 #endif
 
   int smoothTicks = (int)(SMOOTH_MS * 1000UL / TICK_US);
@@ -317,12 +365,12 @@ void setup() {
 
 void loop() {
   while (Serial1.available() > 0) {
-    const char *err = feedByte(serial1Line, (char)Serial1.read());
+    const char *err = feedByte(serial1Line, (char)Serial1.read(), Serial1);
     if (err) Serial1.println(err);
   }
 #if ACCEPT_ON_SERIAL
   while (Serial.available() > 0) {
-    const char *err = feedByte(serialLine, (char)Serial.read());
+    const char *err = feedByte(serialLine, (char)Serial.read(), Serial);
     if (err) Serial.println(err);
   }
 #endif
