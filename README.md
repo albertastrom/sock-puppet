@@ -6,7 +6,7 @@ Socky is a knitted sock puppet with a motorized head and two portrait OLED eyes.
 
 Socky is built to be a social robot and classroom tutor for children ages 6–12. Socky uses short sentences, asks one question at a time, and uses expressions and gestures while speaking. He speaks in real time, and his mouth movements are all synced with the words he's speaking.
 
-![Socky, in the sock. A pink and oat striped sock puppet with OLED eyes](socky.png)
+<img src="socky.png" alt="Socky, in the sock. A pink and oat striped sock puppet with OLED eyes" width="350" height="420">
 
 ## What's in this repository
 
