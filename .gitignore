@@ -8,3 +8,4 @@ playwright-report/
 serial-commands.log
 .DS_Store
 .pio/
+.cursor/

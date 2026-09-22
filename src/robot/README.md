@@ -1,6 +1,6 @@
-# Sock puppet robot
+# Socky robot package
 
-Shared version-2 creature protocol, portrait-eye rendering, validation, configuration, and acceleration-limited simulation. The digital twin and puppeteer consume this package as `@sock-puppet/robot`. Physical firmware is not included.
+Shared version-2 creature protocol, portrait-eye rendering, validation, configuration, and acceleration-limited simulation. The digital twin and puppeteer consume this package as `@sock-puppet/robot`. The Arduino sketch lives in [`src/firmware`](../firmware/README.md), not in this package.
 
 This package lives at `src/robot` in the sock-puppet monorepo. Install from the repository root:
 

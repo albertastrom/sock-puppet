@@ -1,6 +1,6 @@
 # Puppeteer
 
-GPT Live 1 voice controller for a three-servo sock puppet. Live hears and speaks continuously; managed Responses delegation selects the single `puppet_act` tool from the shared move catalog. A shared runtime supplies idle sway, blinking, gaze, eye expressions, named poses, special routines such as dance, and audio-driven jaw movement; it runs in the twin/reference device or in Puppeteer for the lightweight servo firmware. There is no periodic AI motion polling or separate transcription/planner/TTS pipeline.
+GPT Live 1 voice controller for Socky, a three-servo sock puppet. Live hears and speaks continuously; managed Responses delegation selects the single `puppet_act` tool from the shared move catalog. A shared runtime supplies idle sway, blinking, gaze, eye expressions, named poses, special routines such as dance, and audio-driven jaw movement; it runs in the twin/reference device or in Puppeteer for the lightweight servo firmware. There is no periodic AI motion polling or separate transcription/planner/TTS pipeline.
 
 This package lives at `src/puppeteer` in the sock-puppet monorepo. Requires Node.js 22.12+, npm, and an AudioWorklet-capable browser.
 
@@ -18,7 +18,7 @@ Open **http://127.0.0.1:8788**. Start the digital twin separately (`npm run dev:
 | ---------------------------------- | -------------------------------- |
 | `OPENAI_LIVE_MODEL`                | `gpt-live-1`                     |
 | `OPENAI_BACKEND_MODEL`             | `gpt-5.6-luna`                   |
-| `OPENAI_VOICE` / `OPENAI_LANGUAGE` | `marin` / `en`                   |
+| `OPENAI_VOICE` / `OPENAI_LANGUAGE` | `verse` in `.env.example`; `marin` if unset / `en` |
 | `PORT` / `ROBOT_WS_PORT`           | `8788` / `8787`                  |
 | `ROBOT_TRANSPORT`                  | `serial` when USB is attached    |
 | `SERIAL_PATH` / `SERIAL_BAUD`      | unset / `115200`                 |

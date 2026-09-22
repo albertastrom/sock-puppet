@@ -1,6 +1,6 @@
 # Digital twin
 
-React/Three.js twin with three servo joints and two **64 × 128 portrait monochrome eyes**. A shared, deterministic creature runtime supplies idle sway, gaze, blinking, catalog poses and routines, expression sequences, and speech jaw motion. The sock has light-gray and pink bands that follow its geometry.
+Virtual Socky: a React/Three.js twin with three servo joints and two **64 × 128 portrait monochrome eyes**. A shared, deterministic creature runtime supplies idle sway, gaze, blinking, catalog poses and routines, expression sequences, and speech jaw motion. The sock has light-gray and pink bands that follow its geometry.
 
 This package lives at `src/digital-twin` in the sock-puppet monorepo. Requires Node.js 22.12+ and npm.
 

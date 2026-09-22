@@ -1,6 +1,6 @@
 # Servo firmware
 
-This Arduino UNO Q sketch is the low-level driver for three hobby servos and
+This Arduino UNO Q sketch is the low-level driver for Socky's three hobby servos and
 the two OLED eyes:
 
 - motor 1: base yaw, pin 9, home **90°**, travel 0–180.
@@ -56,7 +56,7 @@ on each eye change and then resyncs.
 
 ```sh
 python3 ../oled-display-uno/scripts/gen_logo_header.py
-cp ../oled-display-uno/logo.h logo.h
+cp ../oled-display-uno/logo.h main/logo.h
 ```
 
 Set `ENABLE_EYES` to 0 in `main/main.ino` to build the servo driver on its own,

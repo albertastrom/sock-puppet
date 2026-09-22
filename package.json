@@ -1,5 +1,6 @@
 {
   "name": "sock-puppet",
+  "description": "Socky, a HackMIT 2026 sock puppet: digital twin, live voice, shared robot protocol, and Arduino firmware.",
   "private": true,
   "workspaces": [
     "src/robot",
