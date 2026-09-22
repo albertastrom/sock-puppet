@@ -1,12 +1,12 @@
 # Socky
 
-HackMIT 2026 project archive.
+Built for HackMIT 2026.
 
-Socky is a knitted sock puppet with a motorized head and two portrait OLED eyes. Hearing and speech stay on the computer. A shared creature runtime plays idle sway, gaze, blinks, expressions, and named moves such as nod, look, and dance. That runtime runs in the browser as Virtual Socky, and on the Arduino that drives the physical puppet.
+Socky is a knitted sock puppet with a motorized head and two portrait OLED eyes. Hearing, speech, and tool calls for embodied actions are processed by OpenAI's GPT Live stack, while a shared creature runtime plays idle sway, gaze, blinks, expressions, and named moves such as nod, look, and dance. That runtime runs in the browser as Virtual Socky, and on the Arduino that drives the physical puppet.
 
-Socky talks as a tutor for children ages 10–12: short sentences, one question at a time, and the occasional expression or gesture while speaking.
+Socky is built to be a social robot and classroom tutor for children ages 6–12. Socky uses short sentences, asks one question at a time, and uses expressions and gestures while speaking. He speaks in real time, and his mouth movements are all synced with the words he's speaking.
 
-![Socky, a pink and oat striped sock puppet with pixel eyes](socky.png)
+![Socky, in the sock. A pink and oat striped sock puppet with OLED eyes](socky.png)
 
 ## What's in this repository
 
