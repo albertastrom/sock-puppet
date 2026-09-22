@@ -8,8 +8,8 @@ Socky is built to be a social robot and classroom tutor for children ages 6–12
 
 <table>
   <tr>
-    <td align="center"><img src="socky.png" alt="Render of Socky, a pink and oat striped sock puppet with OLED eyes" width="280" height="336"><br><sub>Render</sub></td>
-    <td align="center"><img src="docs/socky-at-hackmit.jpg" alt="Socky at HackMIT 2026, a striped sock with two OLED eyes standing on a round base" width="252" height="336"><br><sub>HackMIT 2026</sub></td>
+    <td align="center" width="40%"><img src="socky.png" alt="Render of Socky, a pink and oat striped sock puppet with OLED eyes" width="280" height="336"><br><sub>Render</sub></td>
+    <td align="center" width="60%"><img src="docs/socky-at-hackmit.jpg" alt="Socky at HackMIT 2026, a striped sock with two OLED eyes on a round base" width="460" height="345"><br><sub>HackMIT 2026</sub></td>
   </tr>
 </table>
 
